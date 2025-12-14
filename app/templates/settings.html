@@ -1,31 +1,50 @@
 {% extends 'base.html' %}
+{% block title %}Imprint · Settings{% endblock %}
 {% block content %}
-<h1>Settings</h1>
-<section>
-    <h2>Key</h2>
-    {% if npub %}
-        <p>npub: <code>{{ npub }}</code></p>
-    {% else %}
-        <p class="warning">No key configured. Set NOSTR_NSEC or NOSTR_SK_HEX in the environment.</p>
-    {% endif %}
+<section class="stack">
+    <p class="eyebrow">Settings</p>
+    <h1>Account & relays</h1>
+    <p class="lede">Configure your publishing key and manage relay connections. Use lightweight forms to keep everything in sync.</p>
 </section>
-<section>
-    <h2>Relays</h2>
-    <form method="post" action="/settings/relays">
-        <input type="url" name="relay_url" placeholder="wss://relay.example.com" required>
-        <button type="submit">Add relay</button>
-    </form>
-    <ul>
-        {% for relay in relays %}
-            <li>
-                {{ relay.url }} ({{ relay.status }})
-                <form method="post" action="/settings/relays/{{ relay.id }}/delete" style="display:inline">
-                    <button type="submit">Remove</button>
-                </form>
-            </li>
+<div class="settings-grid">
+    <section class="card stack">
+        <div class="row space-between align-center">
+            <h2>Key status</h2>
+            <span class="badge subtle">Local only</span>
+        </div>
+        {% if npub %}
+            <p class="muted">npub: <code>{{ npub[:10] }}…{{ npub[-6:] }}</code></p>
+            <p class="muted small">Keys stay on this device; we never store or transmit them beyond signing.</p>
         {% else %}
-            <li>No relays configured.</li>
-        {% endfor %}
-    </ul>
-</section>
+            <p class="warning">No key configured. Set <code>NOSTR_NSEC</code> or <code>NOSTR_SK_HEX</code> in the environment.</p>
+        {% endif %}
+    </section>
+    <section class="card stack">
+        <h2>Relays</h2>
+        <form class="row wrap gap" method="post" action="/settings/relays">
+            <div class="field grow">
+                <label for="relay_url">Relay URL</label>
+                <input id="relay_url" type="url" name="relay_url" placeholder="wss://relay.example.com" required>
+            </div>
+            <div class="field action-field">
+                <button type="submit" class="button">Add relay</button>
+            </div>
+        </form>
+        <ul class="relay-list" role="list">
+            {% for relay in relays %}
+                <li class="relay-item row space-between align-center">
+                    <div class="stack">
+                        <span class="relay-url">{{ relay.url }}</span>
+                        <span class="muted small">Status: <span class="badge subtle">{{ relay.status }}</span></span>
+                    </div>
+                    <form method="post" action="/settings/relays/{{ relay.id }}/delete">
+                        <button type="submit" class="button ghost">Remove</button>
+                    </form>
+                </li>
+            {% else %}
+                <li class="muted">No relays configured.</li>
+            {% endfor %}
+        </ul>
+    </section>
+</div>
 {% endblock %}

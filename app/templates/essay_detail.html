@@ -1,23 +1,52 @@
 {% extends 'base.html' %}
+{% block title %}{{ essay.title }} · Imprint{% endblock %}
 {% block content %}
-<div class="essay">
-    <div class="meta">{{ essay.identifier }} · v{{ version.version if version else '?' }} · {{ essay.author_pubkey }}</div>
-    <h1>{{ essay.title }}</h1>
-    {% if version %}
-    <article class="content">{{ version.content | markdown }}</article>
-    {% else %}
-    <p>No version available.</p>
-    {% endif %}
-    <div class="actions">
-        <a href="/editor?d={{ essay.identifier }}">Revise</a>
+{% set published = version.published_at.strftime('%b %d, %Y') if version and version.published_at else 'Unpublished' %}
+{% set topics = version.tags|tags_list if version else [] %}
+<article class="essay-detail stack">
+    <header class="stack">
+        <p class="eyebrow">Essay</p>
+        <div class="row wrap gap align-center">
+            <h1 class="essay-heading">{{ essay.title }}</h1>
+            {% if version %}<span class="badge tone">v{{ version.version }}</span>{% endif %}
+        </div>
+        <div class="meta-line">
+            <span>By {{ essay.author_pubkey|author_display }}</span>
+            <span class="dot" aria-hidden="true">•</span>
+            <span>{{ published }}</span>
+            <span class="dot" aria-hidden="true">•</span>
+            <span class="muted">Identifier {{ essay.identifier }}</span>
+        </div>
+        {% if topics %}
+            <div class="tags" aria-label="Tags">
+                {% for topic in topics %}
+                    <span class="badge subtle">{{ topic }}</span>
+                {% endfor %}
+            </div>
+        {% endif %}
+    </header>
+    <section class="prose">
+        {% if version %}
+            {{ version.content | markdown }}
+        {% else %}
+            <p>No version available.</p>
+        {% endif %}
+    </section>
+    <div class="row wrap gap actions">
+        <a class="button" href="/editor?d={{ essay.identifier }}">Revise</a>
+        <a class="button ghost" href="/essays">Back to list</a>
     </div>
-    <details>
-        <summary>View history</summary>
-        <ul>
+    <details class="card history">
+        <summary>History</summary>
+        <ul class="history-list">
             {% for v in history %}
-                <li>v{{ v.version }} · {{ v.published_at }} · event {{ v.event_id }}</li>
+                <li class="row space-between align-start">
+                    <span>v{{ v.version }}</span>
+                    <span class="muted small">{{ v.published_at.strftime('%b %d, %Y %H:%M') if v.published_at else 'Unpublished' }}</span>
+                    <span class="muted small">event {{ v.event_id }}</span>
+                </li>
             {% endfor %}
         </ul>
     </details>
-</div>
+</article>
 {% endblock %}
