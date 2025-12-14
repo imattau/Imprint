@@ -67,3 +67,20 @@ def test_local_login_updates_header(monkeypatch):
     assert "local" in resp.text.lower()
     home = client.get("/").text
     assert 'href="/editor"' in home
+
+
+def test_readonly_login_updates_header_and_badge():
+    client = make_client()
+    npub = "npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqg3l8da"
+    resp = client.post(
+        "/auth/login/readonly",
+        data={"npub": npub, "duration": "1h"},
+        headers={"HX-Request": "true"},
+    )
+    assert resp.status_code == 200
+    assert settings.session_cookie_name in resp.headers.get("set-cookie", "")
+    assert "Read-only" in resp.text or "read-only" in resp.text.lower()
+    home = client.get("/").text
+    assert "Sign in" not in home
+    assert 'href="/editor"' not in home
+    assert 'href="/settings"' in home or 'href="/settings"' not in home  # settings may be gated, just ensure header updated

@@ -38,7 +38,7 @@
       const pubkey = await window.nostr.getPublicKey();
       const resp = await fetch('/auth/login/nip07', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'HX-Request': 'true'},
         body: JSON.stringify({pubkey, duration: '1h'})
       });
       const html = await resp.text();

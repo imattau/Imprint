@@ -1,10 +1,16 @@
+<div id="auth-status">
 {% if session %}
 <div class="auth-chip" hx-boost="false">
     <details class="profile-menu">
         <summary>
             <span class="avatar">✦</span>
             <span class="identity">{{ session.display_name or session.npub or session.pubkey_hex }}</span>
-            <span class="muted small">{{ session.session_mode|title }}</span>
+            <span class="muted small">
+                {{ session.session_mode|title }}
+                {% if session.session_mode == 'readonly' %}
+                    <span class="badge subtle">Read-only</span>
+                {% endif %}
+            </span>
             <span class="sr-only pubkey-hex">{{ session.pubkey_hex }}</span>
         </summary>
         <div class="menu">
@@ -23,3 +29,4 @@
 {% else %}
 <button id="open-auth" class="button ghost" type="button" onclick="window.showAuthModal && window.showAuthModal()">Sign in</button>
 {% endif %}
+</div>
