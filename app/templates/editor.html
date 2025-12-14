@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>{{ 'Revise' if identifier else 'New Essay' }}</h1>
+<form method="post" action="/publish" class="editor-form">
+    <input type="hidden" name="identifier" value="{{ identifier or '' }}">
+    <label>Title
+        <input type="text" name="title" value="{{ title }}" required>
+    </label>
+    <label>Summary (optional)
+        <textarea name="summary" rows="2">{{ summary or '' }}</textarea>
+    </label>
+    <label>Content (Markdown)
+        <textarea name="content" rows="12" hx-post="/preview" hx-trigger="keyup changed delay:300ms" hx-target="#preview" hx-swap="innerHTML">{{ content }}</textarea>
+    </label>
+    <div class="actions">
+        <button type="submit" name="action" value="draft">Save draft</button>
+        <button type="submit" name="action" value="publish">Publish</button>
+    </div>
+</form>
+<section>
+    <h2>Preview</h2>
+    <div id="preview" class="preview"></div>
+</section>
+{% endblock %}

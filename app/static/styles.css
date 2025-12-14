@@ -1,0 +1,13 @@
+body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f6f7fb; }
+.container { max-width: 900px; margin: 20px auto; background: #fff; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+.topbar { background: #222; color: #fff; padding: 10px; display: flex; gap: 10px; }
+.topbar a { color: #fff; text-decoration: none; }
+.editor-form input[type="text"], .editor-form textarea, input[type="url"] { width: 100%; padding: 8px; margin: 6px 0; }
+.actions { margin-top: 10px; display: flex; gap: 10px; }
+button { background: #0066cc; color: #fff; border: none; padding: 8px 12px; cursor: pointer; }
+button:hover { background: #004999; }
+.feed { list-style: none; padding: 0; }
+.card { background: #fafafa; padding: 12px; margin-bottom: 10px; border: 1px solid #e0e0e0; }
+.meta { color: #666; font-size: 0.9em; }
+.preview { border: 1px solid #e0e0e0; padding: 10px; min-height: 120px; }
+.warning { color: #b20000; }

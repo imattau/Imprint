@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="essay">
+    <div class="meta">{{ essay.identifier }} · v{{ version.version if version else '?' }} · {{ essay.author_pubkey }}</div>
+    <h1>{{ essay.title }}</h1>
+    {% if version %}
+    <article class="content">{{ version.content | markdown }}</article>
+    {% else %}
+    <p>No version available.</p>
+    {% endif %}
+    <div class="actions">
+        <a href="/editor?d={{ essay.identifier }}">Revise</a>
+    </div>
+    <details>
+        <summary>View history</summary>
+        <ul>
+            {% for v in history %}
+                <li>v{{ v.version }} · {{ v.published_at }} · event {{ v.event_id }}</li>
+            {% endfor %}
+        </ul>
+    </details>
+</div>
+{% endblock %}
