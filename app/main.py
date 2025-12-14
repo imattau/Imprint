@@ -1,4 +1,5 @@
 import asyncio
+import os
 from typing import Optional
 
 import websockets
@@ -48,6 +49,16 @@ async def startup_event():
 async def shutdown_event():
     if indexer_task:
         indexer_task.cancel()
+
+
+def run() -> None:
+    """Run the FastAPI development server with autoreload."""
+
+    import uvicorn
+
+    host = os.getenv("APP_HOST", "0.0.0.0")
+    port = int(os.getenv("APP_PORT", "8000"))
+    uvicorn.run("app.main:app", host=host, port=port, reload=True)
 
 
 def get_npub() -> Optional[str]:
@@ -192,3 +203,7 @@ async def test_relay(relay_url: str = Form(...)):
 @app.get("/healthz")
 async def health():
     return {"status": "ok"}
+
+
+if __name__ == "__main__":
+    run()
