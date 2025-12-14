@@ -22,10 +22,18 @@
             <span class="brand-text">{{ instance_settings.site_name if instance_settings else 'Imprint' }}</span>
         </a>
         <nav class="nav" aria-label="Primary navigation">
+            {% set session = request.state.session %}
+            {% set can_sign = session and session.session_mode != 'readonly' %}
             <a href="/">Home</a>
             <a href="/essays">Essays</a>
-            <a href="/editor">Editor</a>
-            <a href="/settings">Settings</a>
+            {% if can_sign %}
+                <a href="/editor">Editor</a>
+            {% elif session %}
+                <a href="#" class="needs-auth" onclick="event.preventDefault(); window.showAuthModal && window.showAuthModal()">Editor</a>
+            {% endif %}
+            {% if session %}
+                <a href="/settings">Settings</a>
+            {% endif %}
             <a href="https://github.com/" target="_blank" rel="noreferrer">GitHub</a>
             {% if request.state.is_admin %}
                 <a href="/admin">Admin</a>
@@ -35,7 +43,7 @@
             {% if request.state.is_admin %}
                 {% include 'partials/admin_badge.html' %}
             {% endif %}
-            <div id="auth-status" hx-get="/auth/status" hx-trigger="load" hx-swap="outerHTML"></div>
+            <div id="auth-status" hx-get="/auth/status" hx-trigger="load, authChanged from:body" hx-swap="outerHTML"></div>
         </div>
     </div>
 </header>
@@ -74,5 +82,14 @@
         </div>
     </div>
 </footer>
+{% if request.query_params.get('signin') %}
+<script>
+    window.addEventListener('DOMContentLoaded', () => {
+        if (window.showAuthModal) {
+            window.showAuthModal();
+        }
+    });
+</script>
+{% endif %}
 </body>
 </html>

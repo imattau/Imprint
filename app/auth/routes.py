@@ -1,8 +1,9 @@
 import json
 from typing import Any
+from urllib.parse import urlparse
 
-from fastapi import APIRouter, Body, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import APIRouter, Body, Form, HTTPException, Request, status
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.auth.schemas import SessionMode
@@ -13,6 +14,7 @@ from app.auth.service import (
     create_nip46_session,
     create_readonly_session,
     get_auth_session,
+    is_htmx,
     parse_bunker_uri,
     validate_signed_event_payload,
 )
@@ -36,6 +38,25 @@ async def auth_status(request: Request):
     return templates.TemplateResponse("partials/auth_status.html", {"request": request, "session": session})
 
 
+def _safe_redirect_target(request: Request) -> str:
+    referer = request.headers.get("referer") or ""
+    parsed = urlparse(referer)
+    if parsed.netloc and parsed.hostname != request.url.hostname:
+        return "/"
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    return path
+
+
+async def _login_response(request: Request):
+    if is_htmx(request):
+        response = await auth_status(request)
+        response.headers["HX-Trigger"] = "authChanged"
+        return response
+    return RedirectResponse(url=_safe_redirect_target(request), status_code=status.HTTP_303_SEE_OTHER)
+
+
 @router.post("/login/readonly", response_class=HTMLResponse)
 async def login_readonly(request: Request, npub: str = Form(...), duration: str = Form("1h")):
     instance_settings = getattr(request.state, "instance_settings", None)
@@ -43,7 +64,7 @@ async def login_readonly(request: Request, npub: str = Form(...), duration: str 
         raise HTTPException(status_code=403, detail="Read-only sessions disabled")
     default_minutes = instance_settings.session_default_minutes if instance_settings else 60
     create_readonly_session(request, npub, duration, default_minutes=default_minutes)
-    return await auth_status(request)
+    return await _login_response(request)
 
 
 @router.post("/login/nip07", response_class=HTMLResponse)
@@ -63,7 +84,7 @@ async def login_nip07(request: Request, payload: Any = Body(...)):
     instance_settings = getattr(request.state, "instance_settings", None)
     default_minutes = instance_settings.session_default_minutes if instance_settings else 60
     create_nip07_session(request, pubkey_hex, duration, default_minutes=default_minutes)
-    return await auth_status(request)
+    return await _login_response(request)
 
 
 @router.post("/login/nip46", response_class=HTMLResponse)
@@ -83,7 +104,7 @@ async def login_nip46(
     instance_settings = getattr(request.state, "instance_settings", None)
     default_minutes = instance_settings.session_default_minutes if instance_settings else 60
     create_nip46_session(request, parsed["signer_pubkey"], relay_url, duration, default_minutes=default_minutes)
-    return await auth_status(request)
+    return await _login_response(request)
 
 
 @router.post("/login/local", response_class=HTMLResponse)
@@ -91,13 +112,15 @@ async def login_local(request: Request, duration: str = Form("1h")):
     instance_settings = getattr(request.state, "instance_settings", None)
     default_minutes = instance_settings.session_default_minutes if instance_settings else 60
     create_local_session(request, duration, default_minutes=default_minutes)
-    return await auth_status(request)
+    return await _login_response(request)
 
 
 @router.post("/logout", response_class=HTMLResponse)
 async def logout(request: Request):
     clear_session(request)
-    return await auth_status(request)
+    if is_htmx(request):
+        return await auth_status(request)
+    return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/nip07/sign", response_class=JSONResponse)
@@ -109,4 +132,3 @@ async def nip07_submit_signed_event(request: Request, event: Any = Body(...)):
     if not verify_event(event):
         raise HTTPException(status_code=400, detail="Invalid signature")
     return {"status": "ok"}
-

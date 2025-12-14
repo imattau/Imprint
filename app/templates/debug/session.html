@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block title %}Imprint · Session Debug{% endblock %}
+{% block content %}
+<section class="stack">
+    <p class="eyebrow">Debug</p>
+    <h1>Session state</h1>
+    <p class="muted">Visible only in debug mode. Shows raw session and parsed auth session.</p>
+</section>
+<div class="card stack">
+    <h2>Parsed session</h2>
+    {% if session %}
+        <pre>{{ session.model_dump() }}</pre>
+    {% else %}
+        <p class="muted">No auth session present.</p>
+    {% endif %}
+</div>
+<div class="card stack">
+    <h2>Raw session</h2>
+    <pre>{{ raw_session }}</pre>
+</div>
+{% endblock %}

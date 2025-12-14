@@ -19,7 +19,11 @@ def test_readonly_login_blocks_publish():
     client = client_with_session()
     pubkey_hex = "1" * 64
     npub = encode_npub(pubkey_hex)
-    resp = client.post("/auth/login/readonly", data={"npub": npub, "duration": "1h"})
+    resp = client.post(
+        "/auth/login/readonly",
+        data={"npub": npub, "duration": "1h"},
+        headers={"HX-Request": "true"},
+    )
     assert resp.status_code == 200
     publish = client.post(
         "/publish",
@@ -32,7 +36,11 @@ def test_readonly_login_blocks_publish():
 def test_nip07_login_accepts_pubkey():
     client = client_with_session()
     pubkey_hex = "2" * 64
-    resp = client.post("/auth/login/nip07", json={"pubkey": pubkey_hex, "duration": "1h"})
+    resp = client.post(
+        "/auth/login/nip07",
+        json={"pubkey": pubkey_hex, "duration": "1h"},
+        headers={"HX-Request": "true"},
+    )
     assert resp.status_code == 200
     publish = client.post(
         "/publish",
@@ -49,6 +57,7 @@ def test_nip46_session_created():
     resp = client.post(
         "/auth/login/nip46",
         data={"signer_pubkey": npub, "relay": "wss://relay.example", "duration": "15m"},
+        headers={"HX-Request": "true"},
     )
     assert resp.status_code == 200
     status_html = resp.text
@@ -59,7 +68,7 @@ def test_signed_event_validation_endpoint():
     client = client_with_session()
     sk = SigningKey.generate(curve=SECP256k1)
     pubkey_hex = derive_pubkey_hex(sk)
-    client.post("/auth/login/nip07", json={"pubkey": pubkey_hex, "duration": "1h"})
+    client.post("/auth/login/nip07", json={"pubkey": pubkey_hex, "duration": "1h"}, headers={"HX-Request": "true"})
     template = build_long_form_event_template(pubkey_hex, "demo", "Title", "Content", None, 1, "published", None, [])
     signed = sign_event(sk, template)
     resp = client.post("/auth/nip07/sign", json=signed)

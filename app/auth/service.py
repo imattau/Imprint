@@ -1,13 +1,20 @@
 import datetime as dt
+import json
+import logging
 import secrets
 from typing import Any, Dict, Optional
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, quote_plus, urlparse
 
 from fastapi import HTTPException, Request, status
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 
 from app.auth.schemas import SessionData, SessionMode
-from app.nostr.key import NostrKeyError, decode_nip19, encode_npub, load_private_key, derive_pubkey_hex
 from app.config import settings
+from app.nostr.key import NostrKeyError, decode_nip19, derive_pubkey_hex, encode_npub, load_private_key
+
+logger = logging.getLogger(__name__)
+templates = Jinja2Templates(directory="app/templates")
 
 
 def parse_duration(duration: str | None, default_minutes: int = 60) -> Optional[dt.datetime]:
@@ -28,6 +35,8 @@ def parse_duration(duration: str | None, default_minutes: int = 60) -> Optional[
 
 
 def set_session(request: Request, data: SessionData) -> None:
+    if settings.debug:
+        logger.debug("Setting session keys %s", list(data.model_dump().keys()))
     request.session["session"] = data.model_dump(mode="json")
 
 
@@ -42,6 +51,8 @@ def get_auth_session(request: Request) -> Optional[SessionData]:
     try:
         session = SessionData(**raw)
         if session.is_expired():
+            if settings.debug:
+                logger.debug("Session expired for request %s", request.url.path)
             clear_session(request)
             return None
         return session
@@ -52,8 +63,60 @@ def get_auth_session(request: Request) -> Optional[SessionData]:
 
 def require_signing_session(request: Request) -> SessionData:
     session = get_auth_session(request)
-    if not session or session.session_mode == SessionMode.readonly:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Sign-in with a signer to continue")
+    if not session:
+        raise AuthRequired(auth_required_response(request, status.HTTP_401_UNAUTHORIZED, require_signing=True))
+    if session.session_mode == SessionMode.readonly:
+        # Signing actions cannot proceed with a read-only session; return a hard 403 for form submissions.
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Signer session required")
+    return session
+
+
+class AuthRequired(Exception):
+    def __init__(self, response: HTMLResponse | RedirectResponse | JSONResponse):
+        self.response = response
+
+
+def is_htmx(request: Request) -> bool:
+    return request.headers.get("hx-request", "").lower() == "true"
+
+
+def prefers_json(request: Request) -> bool:
+    accept = request.headers.get("accept", "")
+    if "text/html" in accept:
+        return False
+    return "application/json" in accept
+
+
+def auth_required_response(
+    request: Request, status_code: int = status.HTTP_401_UNAUTHORIZED, require_signing: bool = False
+) -> HTMLResponse | RedirectResponse | JSONResponse:
+    reason = "Sign in required" if not require_signing else "Signer session required"
+    if prefers_json(request):
+        return JSONResponse({"detail": reason}, status_code=status_code)
+
+    if is_htmx(request):
+        headers = {"HX-Trigger": json.dumps({"openAuthModal": True})}
+        context = {"request": request, "reason": reason, "require_signing": require_signing}
+        return templates.TemplateResponse(
+            "fragments/auth_required.html",
+            context,
+            status_code=status_code,
+            headers=headers,
+        )
+
+    next_path = request.url.path
+    if request.url.query:
+        next_path = f"{next_path}?{request.url.query}"
+    redirect_target = f"/?signin=1&next={quote_plus(next_path)}"
+    return RedirectResponse(url=redirect_target, status_code=status.HTTP_303_SEE_OTHER)
+
+
+def require_user(request: Request, allow_readonly: bool = False, require_signing: bool = False) -> SessionData:
+    session = get_auth_session(request)
+    if not session:
+        raise AuthRequired(auth_required_response(request, status_code=status.HTTP_401_UNAUTHORIZED))
+    if session.session_mode == SessionMode.readonly and (require_signing or not allow_readonly):
+        raise AuthRequired(auth_required_response(request, status_code=status.HTTP_403_FORBIDDEN, require_signing=True))
     return session
 
 
@@ -127,4 +190,3 @@ def validate_signed_event_payload(event: Dict[str, Any], expected_pubkey: str) -
     pubkey = event.get("pubkey")
     if pubkey != expected_pubkey:
         raise HTTPException(status_code=400, detail="Mismatched signer")
-

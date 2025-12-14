@@ -110,3 +110,4 @@ Tests cover event signing/verification, version increment logic, and database re
 - The app expects a single private key via `NOSTR_NSEC` (NIP-19) or `NOSTR_SK_HEX`. The key is only used in-memory; never log it.
 - The UI is kept lightweight with HTMX for partial updates and Markdown previews rendered server-side.
 - Relays are treated as untrusted; events are signature-checked before indexing.
+- Sessions use the `SESSION_SECRET` for encryption; change it per-environment. Browsers treat `localhost` and `127.0.0.1` as different origins, so keep to one host when testing cookies to avoid losing your session between requests.

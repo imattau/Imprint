@@ -56,4 +56,5 @@
   window.showAuthModal = showModal;
   window.closeAuthModal = closeModal;
   window.connectNip07 = connectNip07;
+  document.body.addEventListener('openAuthModal', showModal);
 })();

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 from typing import Optional
 from urllib.parse import urlencode
@@ -18,7 +19,7 @@ from app.admin.routes import router as admin_router
 from app.admin.service import InstanceSettingsService
 from app.config import settings
 from app.auth.routes import router as auth_router
-from app.auth.service import get_auth_session, require_signing_session
+from app.auth.service import AuthRequired, get_auth_session, require_signing_session, require_user
 from app.auth.schemas import SessionMode
 from app.db import models
 from app.db.session import aengine, get_session
@@ -34,11 +35,14 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.session_secret,
-    session_cookie="imprint_session",
-    same_site="lax",
+    session_cookie=settings.session_cookie_name,
+    same_site=settings.session_cookie_same_site,
+    max_age=settings.session_cookie_max_age,
+    https_only=settings.session_cookie_https_only,
 )
 app.include_router(auth_router)
 app.include_router(admin_router)
+logger = logging.getLogger(__name__)
 
 indexer_task: Optional[asyncio.Task] = None
 
@@ -90,7 +94,14 @@ async def inject_session(request: Request, call_next):
     except Exception:
         request.state.instance_settings = None
     response = await call_next(request)
+    if settings.debug and hasattr(request, "session") and settings.session_cookie_name in response.headers.get("set-cookie", ""):
+        logger.debug("Session cookie emitted for path %s", request.url.path)
     return response
+
+
+@app.exception_handler(AuthRequired)
+async def auth_required_handler(request: Request, exc: AuthRequired):
+    return exc.response
 
 
 def parse_tags_input(raw: Optional[str]) -> list[str]:
@@ -114,6 +125,8 @@ async def init_models():
 @app.on_event("startup")
 async def startup_event():
     await init_models()
+    if os.getenv("PYTEST_CURRENT_TEST") or not settings.enable_indexer:
+        return
     global indexer_task
     async with get_session() as session:
         settings_service = InstanceSettingsService(session)
@@ -151,6 +164,8 @@ def get_npub() -> Optional[str]:
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, author: str | None = None, days: int | None = None, tag: str | None = None):
+    if getattr(request.state, "session", None) is None:
+        request.state.session = get_auth_session(request)
     instance_settings = getattr(request.state, "instance_settings", None)
     max_items = instance_settings.max_feed_items if instance_settings else 12
     async with get_session() as session:
@@ -261,6 +276,7 @@ async def essays_fragment(
 
 @app.get("/editor", response_class=HTMLResponse)
 async def editor(request: Request, d: str | None = None):
+    require_user(request, require_signing=True)
     content = ""
     title = ""
     summary = ""
@@ -385,6 +401,7 @@ async def essay_detail(request: Request, identifier: str, version: int | None = 
 
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
+    require_user(request, allow_readonly=True)
     async with get_session() as session:
         relays = (await session.execute(select(models.Relay))).scalars().all()
     npub = get_npub()
@@ -392,9 +409,22 @@ async def settings_page(request: Request):
     return templates.TemplateResponse("settings.html", context)
 
 
+if settings.debug:
+
+    @app.get("/debug/session", response_class=HTMLResponse)
+    async def debug_session(request: Request):
+        session_data = get_auth_session(request)
+        context = {
+            "request": request,
+            "session": session_data,
+            "raw_session": dict(getattr(request, "session", {})),
+        }
+        return templates.TemplateResponse("debug/session.html", context)
+
+
 @app.post("/settings/relays")
 async def add_relay(request: Request, relay_url: str = Form(...)):
-    require_signing_session(request)
+    require_user(request, require_signing=True)
     async with get_session() as session:
         existing = await session.execute(select(models.Relay).where(models.Relay.url == relay_url))
         relay = existing.scalars().first()
@@ -406,7 +436,7 @@ async def add_relay(request: Request, relay_url: str = Form(...)):
 
 @app.post("/settings/relays/{relay_id}/delete")
 async def delete_relay(relay_id: int, request: Request):
-    require_signing_session(request)
+    require_user(request, require_signing=True)
     async with get_session() as session:
         relay = await session.get(models.Relay, relay_id)
         if relay:
@@ -417,7 +447,7 @@ async def delete_relay(relay_id: int, request: Request):
 
 @app.post("/settings/test")
 async def test_relay(request: Request, relay_url: str = Form(...)):
-    require_signing_session(request)
+    require_user(request, require_signing=True)
     try:
         async with websockets.connect(relay_url) as ws:
             await ws.close()

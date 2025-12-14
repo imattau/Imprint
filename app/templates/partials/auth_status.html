@@ -5,6 +5,7 @@
             <span class="avatar">✦</span>
             <span class="identity">{{ session.display_name or session.npub or session.pubkey_hex }}</span>
             <span class="muted small">{{ session.session_mode|title }}</span>
+            <span class="sr-only pubkey-hex">{{ session.pubkey_hex }}</span>
         </summary>
         <div class="menu">
             <div class="menu-section">
