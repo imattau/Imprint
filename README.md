@@ -1,35 +1,52 @@
 # Imprint
 
-Imprint is a minimal long-form publishing app for Nostr (NIP-23) built with FastAPI, Jinja2, and HTMX. It supports Markdown authoring, versioned publishing to relays, and discovery through a background indexer.
+Imprint is a FastAPI web app for Nostr long-form (NIP-23) publishing. It serves HTML via Jinja2 templates, provides HTMX-powered interactivity, and stores data in SQLite using SQLAlchemy. A background task indexes content from configured relays.
 
-## Features
-- Write Markdown essays with live previews.
-- Publish to Nostr as kind 30023 events with NIP-23 tags and versioning.
-- Track revisions and show history for each essay.
-- Browse a feed sourced from local cache and background relay indexing.
-- Manage relays and view the configured public key (npub) from your environment key.
+## Prerequisites
+- Python >= 3.11
+- [Poetry](https://python-poetry.org/) for dependency management
 
-## Setup
-1. Install dependencies with Poetry:
+## Quickstart
+1. Install dependencies:
 
 ```bash
 poetry install
 ```
 
-2. Set environment variables (examples):
+2. Copy the example environment file and fill in your details:
 
 ```bash
-export NOSTR_NSEC="nsec1..."  # or NOSTR_SK_HEX with 32-byte hex
-export NOSTR_RELAYS="wss://relay.damus.io,wss://nos.lol"
+cp .env.example .env
 ```
 
-3. Run the app:
+Update the `.env` with one of `NOSTR_NSEC` or `NOSTR_SK_HEX`, your relay list, and optional host/port overrides.
+
+3. Run the development server (hot reload enabled):
 
 ```bash
-poetry run uvicorn app.main:app --reload
+make run
+# or: poetry run python tasks.py run
 ```
 
-The app uses SQLite by default (`imprint.db`). Override with `DATABASE_URL` if needed.
+Open http://localhost:8000 to use the app.
+
+## Managing environment
+Key variables consumed via `.env` (see `.env.example`):
+- `NOSTR_NSEC` or `NOSTR_SK_HEX`: private key for signing events (do **not** commit real keys).
+- `NOSTR_RELAYS`: comma-separated list of relays.
+- `DATABASE_URL`: defaults to `sqlite+aiosqlite:///./imprint.db`.
+- `APP_HOST` / `APP_PORT`: optional bind settings for development.
+
+## Common tasks
+All tasks are exposed through both the `Makefile` and `tasks.py` runner:
+
+- Install deps: `make install`
+- Run server: `make run`
+- Run tests: `make test`
+- Format code: `make format`
+- Lint (Ruff + mypy): `make lint`
+- Initialize the database schema (create tables via SQLAlchemy metadata): `make db`
+- Clean caches: `make clean`
 
 ## Publishing workflow
 1. Visit `/editor` to create a draft. Use **Save draft** to store locally without publishing.
@@ -53,7 +70,7 @@ Use the Settings page to add/remove relays. A quick connectivity test is availab
 Run the test suite with:
 
 ```bash
-poetry run pytest
+make test
 ```
 
 Tests cover event signing/verification, version increment logic, and database relationships.
