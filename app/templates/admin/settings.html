@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}Instance settings · {{ request.state.instance_settings.site_name if request.state.instance_settings else 'Admin' }}{% endblock %}
+{% block content %}
+{% set is_mapping = settings is mapping %}
+{% set payments_enabled = (settings.get('enable_payments') in ['on', True, 'true', '1']) if is_mapping else settings.enable_payments %}
+{% set feed_enabled = (settings.get('enable_public_essays_feed') in ['on', True, 'true', '1']) if is_mapping else settings.enable_public_essays_feed %}
+{% set readonly_enabled = (settings.get('enable_registrationless_readonly') in ['on', True, 'true', '1']) if is_mapping else settings.enable_registrationless_readonly %}
+
+<section class="stack">
+    <div class="row align-center gap">
+        <p class="eyebrow">Administrator</p>
+        {% include 'partials/admin_badge.html' %}
+    </div>
+    <h1>Instance settings</h1>
+    <p class="lede">Update the labels, discovery relays, and safety switches for this Imprint deployment.</p>
+</section>
+
+<form class="stack" action="/admin/settings" method="post">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% if errors %}
+        <div class="alert">
+            <p><strong>Validation errors</strong></p>
+            <ul>
+                {% for err in errors %}
+                    <li>{{ err['loc'][0] }}: {{ err['msg'] }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+    {% if saved %}
+        <div class="alert success">Settings saved.</div>
+    {% endif %}
+
+    <section class="card stack">
+        <h2>Branding</h2>
+        <div class="row gap wrap">
+            <label class="field grow">
+                <span>Site name</span>
+                <input type="text" name="site_name" value="{{ settings.get('site_name','') if is_mapping else settings.site_name }}" maxlength="120" required>
+            </label>
+            <label class="field grow">
+                <span>Tagline</span>
+                <input type="text" name="site_tagline" value="{{ settings.get('site_tagline','') if is_mapping else (settings.site_tagline or '') }}" maxlength="255">
+            </label>
+        </div>
+        <label class="field">
+            <span>Description</span>
+            <textarea name="site_description" maxlength="2000">{{ settings.get('site_description','') if is_mapping else (settings.site_description or '') }}</textarea>
+        </label>
+        <div class="row gap wrap">
+            <label class="field grow">
+                <span>Public base URL</span>
+                <input type="url" name="public_base_url" placeholder="https://example.com" value="{{ settings.get('public_base_url','') if is_mapping else (settings.public_base_url or '') }}">
+                <span class="muted small">Used when generating absolute links.</span>
+            </label>
+            <label class="field grow">
+                <span>Theme accent (hex)</span>
+                <input type="text" name="theme_accent" placeholder="#2f6f73" value="{{ settings.get('theme_accent','') if is_mapping else (settings.theme_accent or '') }}">
+            </label>
+        </div>
+    </section>
+
+    <section class="card stack">
+        <h2>Discovery & relays</h2>
+        <label class="field">
+            <span>Default relays (comma-separated)</span>
+            <textarea name="default_relays" placeholder="wss://relay.damus.io,wss://nos.lol" maxlength="1000">{{ settings.get('default_relays','') if is_mapping else (settings.default_relays or '') }}</textarea>
+            <span class="muted small">Used for indexing and as fallbacks for new users.</span>
+        </label>
+        <div class="row gap wrap">
+            <label class="field grow">
+                <span>Max feed items</span>
+                <input type="number" name="max_feed_items" min="1" max="100" value="{{ settings.get('max_feed_items',15) if is_mapping else settings.max_feed_items }}">
+            </label>
+            <label class="field grow">
+                <span>Public essays feed</span>
+                <div class="row gap align-center">
+                    <input type="checkbox" name="enable_public_essays_feed" {% if feed_enabled %}checked{% endif %}>
+                    <span class="muted small">Expose the recent essays list to unauthenticated visitors.</span>
+                </div>
+            </label>
+        </div>
+    </section>
+
+    <section class="card stack">
+        <h2>Session defaults</h2>
+        <div class="row gap wrap">
+            <label class="field grow">
+                <span>Default session minutes</span>
+                <input type="number" name="session_default_minutes" min="5" max="1440" value="{{ settings.get('session_default_minutes',60) if is_mapping else settings.session_default_minutes }}">
+            </label>
+            <label class="field grow">
+                <span>Read-only without registration</span>
+                <div class="row gap align-center">
+                    <input type="checkbox" name="enable_registrationless_readonly" {% if readonly_enabled %}checked{% endif %}>
+                    <span class="muted small">Allow visitors to browse with only an npub.</span>
+                </div>
+            </label>
+        </div>
+    </section>
+
+    <section class="card stack">
+        <h2>Admin identity & payments</h2>
+        <div class="row gap wrap">
+            <label class="field grow">
+                <span>Instance Nostr address (name@domain)</span>
+                <input type="text" name="instance_nostr_address" value="{{ settings.get('instance_nostr_address','') if is_mapping else (settings.instance_nostr_address or '') }}">
+            </label>
+            <label class="field grow">
+                <span>Admin npub</span>
+                <input type="text" name="instance_admin_npub" value="{{ settings.get('instance_admin_npub','') if is_mapping else (settings.instance_admin_npub or '') }}">
+            </label>
+        </div>
+        <div class="row gap wrap">
+            <label class="field grow">
+                <span>Lightning address</span>
+                <input type="text" name="lightning_address" value="{{ settings.get('lightning_address','') if is_mapping else (settings.lightning_address or '') }}" placeholder="you@domain.tld">
+            </label>
+            <label class="field grow">
+                <span>Donation message</span>
+                <input type="text" name="donation_message" maxlength="255" value="{{ settings.get('donation_message','') if is_mapping else (settings.donation_message or '') }}">
+            </label>
+        </div>
+        <label class="field row gap align-center">
+            <input type="checkbox" name="enable_payments" {% if payments_enabled %}checked{% endif %}>
+            <span class="muted small">Show the Lightning address in the footer.</span>
+        </label>
+    </section>
+
+    <div class="save-bar">
+        <div class="row space-between align-center">
+            <div class="muted small">Changes apply immediately for all visitors.</div>
+            <button type="submit" class="button">Save settings</button>
+        </div>
+    </div>
+</form>
+{% endblock %}

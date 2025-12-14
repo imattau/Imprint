@@ -14,6 +14,8 @@ from markupsafe import Markup
 from sqlalchemy import select
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.admin.routes import router as admin_router
+from app.admin.service import InstanceSettingsService
 from app.config import settings
 from app.auth.routes import router as auth_router
 from app.auth.service import get_auth_session, require_signing_session
@@ -36,6 +38,7 @@ app.add_middleware(
     same_site="lax",
 )
 app.include_router(auth_router)
+app.include_router(admin_router)
 
 indexer_task: Optional[asyncio.Task] = None
 
@@ -72,11 +75,20 @@ templates.env.filters["tags_list"] = tags_list
 @app.middleware("http")
 async def inject_session(request: Request, call_next):
     session_data = None
+    raw_session = request.scope.get("session") if hasattr(request, "scope") else None
     try:
-        session_data = get_auth_session(request)
+        if raw_session is not None:
+            session_data = get_auth_session(request)
     except Exception:
         session_data = None
     request.state.session = session_data
+    request.state.is_admin = bool(raw_session.get("is_admin")) if isinstance(raw_session, dict) else False
+    try:
+        async with get_session() as session:
+            settings_service = InstanceSettingsService(session)
+            request.state.instance_settings = await settings_service.get_settings()
+    except Exception:
+        request.state.instance_settings = None
     response = await call_next(request)
     return response
 
@@ -85,6 +97,13 @@ def parse_tags_input(raw: Optional[str]) -> list[str]:
     if not raw:
         return []
     return [tag.strip() for tag in raw.split(",") if tag.strip()]
+
+
+def relays_for_request(request: Request) -> list[str]:
+    instance_settings = getattr(request.state, "instance_settings", None)
+    if instance_settings and instance_settings.default_relays:
+        return [relay.strip() for relay in instance_settings.default_relays.split(",") if relay.strip()]
+    return settings.relay_urls
 
 
 async def init_models():
@@ -96,8 +115,13 @@ async def init_models():
 async def startup_event():
     await init_models()
     global indexer_task
-    if settings.relay_urls:
-        indexer_task = asyncio.create_task(run_indexer(get_session, settings.relay_urls))
+    async with get_session() as session:
+        settings_service = InstanceSettingsService(session)
+        instance_settings = await settings_service.get_settings()
+        configured_relays = settings_service.relays_list(instance_settings)
+    relays = configured_relays or settings.relay_urls
+    if relays:
+        indexer_task = asyncio.create_task(run_indexer(get_session, relays))
 
 
 @app.on_event("shutdown")
@@ -127,9 +151,14 @@ def get_npub() -> Optional[str]:
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, author: str | None = None, days: int | None = None, tag: str | None = None):
+    instance_settings = getattr(request.state, "instance_settings", None)
+    max_items = instance_settings.max_feed_items if instance_settings else 12
     async with get_session() as session:
         service = EssayService(session)
-        essays = await service.list_latest_published(author=author, tag=tag, days=days, limit=12)
+        if instance_settings and not instance_settings.enable_public_essays_feed:
+            essays = []
+        else:
+            essays = await service.list_latest_published(author=author, tag=tag, days=days, limit=max_items)
     context = {
         "request": request,
         "essays": essays,
@@ -141,9 +170,14 @@ async def home(request: Request, author: str | None = None, days: int | None = N
 
 @app.get("/partials/recent", response_class=HTMLResponse)
 async def recent_fragment(request: Request, author: str | None = None, days: int | None = None, tag: str | None = None):
+    instance_settings = getattr(request.state, "instance_settings", None)
+    max_items = instance_settings.max_feed_items if instance_settings else 12
     async with get_session() as session:
         service = EssayService(session)
-        essays = await service.list_latest_published(author=author, tag=tag, days=days, limit=12)
+        if instance_settings and not instance_settings.enable_public_essays_feed:
+            essays = []
+        else:
+            essays = await service.list_latest_published(author=author, tag=tag, days=days, limit=max_items)
     context = {
         "request": request,
         "essays": essays,
@@ -168,7 +202,8 @@ async def essays_page(
     page: int = 1,
 ):
     page = max(page, 1)
-    page_size = 12
+    instance_settings = getattr(request.state, "instance_settings", None)
+    page_size = instance_settings.max_feed_items if instance_settings else 12
     offset = (page - 1) * page_size
     async with get_session() as session:
         service = EssayService(session)
@@ -200,7 +235,8 @@ async def essays_fragment(
     page: int = 1,
 ):
     page = max(page, 1)
-    page_size = 12
+    instance_settings = getattr(request.state, "instance_settings", None)
+    page_size = instance_settings.max_feed_items if instance_settings else 12
     offset = (page - 1) * page_size
     async with get_session() as session:
         service = EssayService(session)
@@ -318,6 +354,7 @@ async def publish(
             summary,
             parsed_tags,
             signed_event=signed,
+            relay_urls=relays_for_request(request),
             prepared=prepared,
         )
         return RedirectResponse(url=f"/essay/{version.essay.identifier}", status_code=303)
