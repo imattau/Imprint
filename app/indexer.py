@@ -2,6 +2,8 @@ import asyncio
 import datetime as dt
 from typing import List
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from sqlalchemy import select
 
 from app.db import models
@@ -10,6 +12,7 @@ from app.nostr.relay import subscribe_long_form
 
 async def store_event(session: AsyncSession, event: dict) -> None:
     tags = {tag[0]: tag[1] for tag in event.get("tags", []) if len(tag) >= 2}
+    topics = [tag[1] for tag in event.get("tags", []) if len(tag) >= 2 and tag[0] == "t"]
     identifier = tags.get("d")
     title = tags.get("title")
     version = int(tags.get("version", "0"))
@@ -25,6 +28,7 @@ async def store_event(session: AsyncSession, event: dict) -> None:
             title=title,
             author_pubkey=event.get("pubkey"),
             summary=summary,
+            tags=",".join(topics) if topics else None,
             latest_version=version,
             latest_event_id=event.get("id"),
             updated_at=dt.datetime.now(dt.timezone.utc),
@@ -36,6 +40,7 @@ async def store_event(session: AsyncSession, event: dict) -> None:
         essay.latest_version = version
         essay.latest_event_id = event.get("id")
         essay.updated_at = dt.datetime.now(dt.timezone.utc)
+        essay.tags = ",".join(topics) if topics else None
 
     exists = await session.execute(
         select(models.EssayVersion).where(
@@ -53,6 +58,7 @@ async def store_event(session: AsyncSession, event: dict) -> None:
             event_id=event.get("id"),
             supersedes_event_id=tags.get("supersedes"),
             published_at=dt.datetime.fromtimestamp(event.get("created_at", 0), dt.timezone.utc),
+            tags=",".join(topics) if topics else None,
         )
         session.add(version_row)
     await session.commit()

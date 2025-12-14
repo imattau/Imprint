@@ -1,0 +1,10 @@
+<div id="essays-block">
+    {% include 'fragments/essays_list.html' %}
+    {% if has_more %}
+        <div class="load-more">
+            <button hx-get="/partials/essays?{{ query_string }}" hx-target="#essays-block" hx-swap="outerHTML">Load more</button>
+            <noscript><a href="/essays?{{ query_string }}">Next page</a></noscript>
+        </div>
+    {% endif %}
+    <p class="ordering-note">Ordered by publish time observed from relays. No ranking applied.</p>
+</div>

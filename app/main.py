@@ -1,22 +1,23 @@
 import asyncio
 import os
 from typing import Optional
+from urllib.parse import urlencode
 
+import markdown2
 import websockets
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
 from markupsafe import Markup
+from sqlalchemy import select
 
 from app.config import settings
 from app.db import models
 from app.db.session import aengine, get_session
 from app.indexer import run_indexer
-from app.nostr.key import NostrKeyError, npub_from_secret
+from app.nostr.key import NostrKeyError, encode_npub, npub_from_secret
 from app.services.essays import EssayService
-import markdown2
 
 app = FastAPI(title="Imprint", version="0.1.0")
 templates = Jinja2Templates(directory="app/templates")
@@ -30,6 +31,34 @@ def markdown_filter(text: str | None):
 
 
 templates.env.filters["markdown"] = markdown_filter
+
+
+def author_display(pubkey: str | None) -> str:
+    if not pubkey:
+        return "Unknown author"
+    try:
+        npub = encode_npub(pubkey)
+    except Exception:
+        npub = pubkey
+    if len(npub) > 20:
+        return f"{npub[:10]}…{npub[-4:]}"
+    return npub
+
+
+def tags_list(tags: str | None) -> list[str]:
+    if not tags:
+        return []
+    return [tag.strip() for tag in tags.split(",") if tag.strip()]
+
+
+templates.env.filters["author_display"] = author_display
+templates.env.filters["tags_list"] = tags_list
+
+
+def parse_tags_input(raw: Optional[str]) -> list[str]:
+    if not raw:
+        return []
+    return [tag.strip() for tag in raw.split(",") if tag.strip()]
 
 
 async def init_models():
@@ -71,21 +100,101 @@ def get_npub() -> Optional[str]:
 
 
 @app.get("/", response_class=HTMLResponse)
-async def home(request: Request, author: str | None = None, days: int | None = None):
+async def home(request: Request, author: str | None = None, days: int | None = None, tag: str | None = None):
     async with get_session() as session:
         service = EssayService(session)
-        essays = await service.list_recent(author=author, days=days)
-    context = {"request": request, "essays": essays, "npub": get_npub()}
+        essays = await service.list_latest_published(author=author, tag=tag, days=days, limit=12)
+    context = {
+        "request": request,
+        "essays": essays,
+        "filters": {"author": author or "", "days": days or "", "tag": tag or ""},
+        "npub": get_npub(),
+    }
     return templates.TemplateResponse("index.html", context)
 
 
-@app.get("/fragments/feed", response_class=HTMLResponse)
-async def feed_fragment(request: Request, author: str | None = None, days: int | None = None):
+@app.get("/partials/recent", response_class=HTMLResponse)
+async def recent_fragment(request: Request, author: str | None = None, days: int | None = None, tag: str | None = None):
     async with get_session() as session:
         service = EssayService(session)
-        essays = await service.list_recent(author=author, days=days)
-    context = {"request": request, "essays": essays}
-    return templates.TemplateResponse("fragments/feed.html", context)
+        essays = await service.list_latest_published(author=author, tag=tag, days=days, limit=12)
+    context = {
+        "request": request,
+        "essays": essays,
+    }
+    return templates.TemplateResponse("fragments/essays_list.html", context)
+
+
+def build_pagination_context(author: str | None, tag: str | None, days: int | None, page: int, page_size: int, count: int):
+    has_more = count > page_size
+    next_page = page + 1 if has_more else None
+    base_params = {"author": author or "", "tag": tag or "", "days": days or ""}
+    query_string = urlencode({**base_params, "page": next_page}) if next_page else ""
+    return has_more, next_page, query_string, base_params
+
+
+@app.get("/essays", response_class=HTMLResponse)
+async def essays_page(
+    request: Request,
+    author: str | None = None,
+    tag: str | None = None,
+    days: int | None = None,
+    page: int = 1,
+):
+    page = max(page, 1)
+    page_size = 12
+    offset = (page - 1) * page_size
+    async with get_session() as session:
+        service = EssayService(session)
+        essays = await service.list_latest_published(
+            author=author, tag=tag, days=days, limit=page_size + 1, offset=offset
+        )
+    has_more, next_page, query_string, base_params = build_pagination_context(
+        author, tag, days, page, page_size, len(essays)
+    )
+    essays = essays[:page_size]
+    context = {
+        "request": request,
+        "essays": essays,
+        "filters": {"author": author or "", "days": days or "", "tag": tag or ""},
+        "has_more": has_more,
+        "next_page": next_page,
+        "query_string": query_string,
+        "base_params": base_params,
+    }
+    return templates.TemplateResponse("essays.html", context)
+
+
+@app.get("/partials/essays", response_class=HTMLResponse)
+async def essays_fragment(
+    request: Request,
+    author: str | None = None,
+    tag: str | None = None,
+    days: int | None = None,
+    page: int = 1,
+):
+    page = max(page, 1)
+    page_size = 12
+    offset = (page - 1) * page_size
+    async with get_session() as session:
+        service = EssayService(session)
+        essays = await service.list_latest_published(
+            author=author, tag=tag, days=days, limit=page_size + 1, offset=offset
+        )
+    has_more, next_page, query_string, base_params = build_pagination_context(
+        author, tag, days, page, page_size, len(essays)
+    )
+    essays = essays[:page_size]
+    context = {
+        "request": request,
+        "essays": essays,
+        "filters": {"author": author or "", "days": days or "", "tag": tag or ""},
+        "has_more": has_more,
+        "next_page": next_page,
+        "query_string": query_string,
+        "base_params": base_params,
+    }
+    return templates.TemplateResponse("fragments/essays_block.html", context)
 
 
 @app.get("/editor", response_class=HTMLResponse)
@@ -93,6 +202,7 @@ async def editor(request: Request, d: str | None = None):
     content = ""
     title = ""
     summary = ""
+    tags = ""
     if d:
         async with get_session() as session:
             result = await session.execute(
@@ -105,7 +215,8 @@ async def editor(request: Request, d: str | None = None):
                     content = latest.content
                     title = essay.title
                     summary = latest.summary or ""
-    context = {"request": request, "content": content, "title": title, "identifier": d, "summary": summary}
+                    tags = latest.tags or ""
+    context = {"request": request, "content": content, "title": title, "identifier": d, "summary": summary, "tags": tags}
     return templates.TemplateResponse("editor.html", context)
 
 
@@ -122,15 +233,17 @@ async def publish(
     content: str = Form(...),
     summary: Optional[str] = Form(None),
     identifier: Optional[str] = Form(None),
+    tags: Optional[str] = Form(None),
     action: str = Form("publish"),
 ):
     try:
         async with get_session() as session:
             service = EssayService(session)
+            parsed_tags = parse_tags_input(tags)
             if action == "draft":
-                draft = await service.save_draft(identifier, title, content, summary)
+                draft = await service.save_draft(identifier, title, content, summary, parsed_tags)
                 return RedirectResponse(url=f"/essay/{draft.essay.identifier}", status_code=303)
-            version = await service.publish(identifier, title, content, summary)
+            version = await service.publish(identifier, title, content, summary, parsed_tags)
             return RedirectResponse(url=f"/essay/{version.essay.identifier}", status_code=303)
     except NostrKeyError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

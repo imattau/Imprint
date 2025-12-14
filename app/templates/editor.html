@@ -9,6 +9,9 @@
     <label>Summary (optional)
         <textarea name="summary" rows="2">{{ summary or '' }}</textarea>
     </label>
+    <label>Tags (comma-separated, optional)
+        <input type="text" name="tags" value="{{ tags or '' }}" placeholder="nostr, writing, tech">
+    </label>
     <label>Content (Markdown)
         <textarea name="content" rows="12" hx-post="/preview" hx-trigger="keyup changed delay:300ms" hx-target="#preview" hx-swap="innerHTML">{{ content }}</textarea>
     </label>

@@ -75,6 +75,10 @@ make test
 
 Tests cover event signing/verification, version increment logic, and database relationships.
 
+## Browsing essays
+- The homepage includes a **Recently published** section showing the latest version of each essay.
+- Use `/essays` to browse the full list with `?days=7`, `?author=npub...`, or `?tag=topic` filters and load-more pagination.
+
 ## Notes and assumptions
 - The app expects a single private key via `NOSTR_NSEC` (NIP-19) or `NOSTR_SK_HEX`. The key is only used in-memory; never log it.
 - The UI is kept lightweight with HTMX for partial updates and Markdown previews rendered server-side.

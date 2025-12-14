@@ -51,6 +51,7 @@ def build_long_form_event(
     version: int,
     status: str,
     supersedes: Optional[str] = None,
+    topics: Optional[list[str]] = None,
 ) -> Dict[str, Any]:
     created_at = int(time.time())
     tags: List[List[str]] = [
@@ -64,6 +65,8 @@ def build_long_form_event(
         tags.append(["summary", summary])
     if supersedes:
         tags.append(["supersedes", supersedes])
+    for topic in topics or []:
+        tags.append(["t", topic])
     event = {
         "pubkey": pubkey,
         "created_at": created_at,

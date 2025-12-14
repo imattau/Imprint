@@ -1,0 +1,23 @@
+<ul class="essay-list">
+    {% for version in essays %}
+        <li class="card essay-card">
+            <div class="meta">
+                <span class="essay-date">{{ version.published_at.strftime('%b %d, %Y') if version.published_at else 'Unpublished' }}</span>
+                <span class="divider">•</span>
+                <span class="essay-author">{{ version.essay.author_pubkey|author_display }}</span>
+            </div>
+            <h3><a href="/essay/{{ version.essay.identifier }}">{{ version.essay.title }}</a></h3>
+            {% if version.summary %}<p class="essay-summary">{{ version.summary }}</p>{% endif %}
+            {% set topics = version.tags|tags_list %}
+            {% if topics %}
+                <div class="tags">
+                    {% for topic in topics %}
+                        <span class="tag-pill">{{ topic }}</span>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        </li>
+    {% else %}
+        <li class="card">No essays yet.</li>
+    {% endfor %}
+</ul>
