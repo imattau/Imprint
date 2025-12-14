@@ -1,34 +1,42 @@
 {% extends 'base.html' %}
+{% block title %}Imprint · Home{% endblock %}
 {% block content %}
-<section class="hero">
-    <div>
-        <h1>Recently published</h1>
-        <p>Newest essays arrive here as we see them from relays. Browse by author, time, or topic.</p>
+<section class="hero stack">
+    <p class="eyebrow">Recently published</p>
+    <h1>Fresh essays from the network</h1>
+    <p class="lede">A calm feed of the newest published versions observed from your relays. Filter by author, tag, or time window.</p>
+    <div class="row wrap gap">
+        <a class="button" href="/essays">Browse all essays</a>
+        <p class="muted">Entries are displayed as we first saw them—no ranking or weighting.</p>
     </div>
-    <a class="secondary" href="/essays">Browse all</a>
 </section>
-
-<div class="filters">
-    <form action="/" method="get" hx-get="/partials/recent" hx-target="#recent-list" hx-swap="innerHTML" hx-push-url="true">
-        <label>Author (npub or hex)
-            <input type="text" name="author" value="{{ filters.author }}" placeholder="npub1...">
-        </label>
-        <label>Tag
-            <input type="text" name="tag" value="{{ filters.tag }}" placeholder="writing">
-        </label>
-        <label>Last days
-            <select name="days">
+<section class="card">
+    <form class="filter-form" action="/" method="get" hx-get="/partials/recent" hx-target="#recent-list" hx-swap="innerHTML" hx-push-url="true">
+        <div class="field">
+            <label for="author-home">Author (npub or hex)</label>
+            <input id="author-home" type="text" name="author" value="{{ filters.author }}" placeholder="npub1...">
+        </div>
+        <div class="field">
+            <label for="tag-home">Tag</label>
+            <input id="tag-home" type="text" name="tag" value="{{ filters.tag }}" placeholder="writing">
+        </div>
+        <div class="field">
+            <label for="days-home">Last days</label>
+            <select id="days-home" name="days">
                 <option value="" {% if not filters.days %}selected{% endif %}>Any</option>
                 <option value="7" {% if filters.days|string == '7' %}selected{% endif %}>7</option>
                 <option value="30" {% if filters.days|string == '30' %}selected{% endif %}>30</option>
             </select>
-        </label>
-        <button type="submit">Apply</button>
+        </div>
+        <div class="field action-field">
+            <button type="submit" class="button">Apply filters</button>
+        </div>
     </form>
-</div>
-
-<div id="recent-list">
-    {% include 'fragments/essays_list.html' %}
-</div>
-<p class="ordering-note">Ordered by publish time observed from relays. No ranking applied.</p>
+</section>
+<section class="stack" aria-live="polite">
+    <div id="recent-list">
+        {% include 'fragments/essays_list.html' %}
+    </div>
+    <p class="muted small">Entries stream in from configured relays. Timestamps reflect when we first observed publication.</p>
+</section>
 {% endblock %}

@@ -1,21 +1,23 @@
-<ul class="essay-list">
+<ul class="essay-list" role="list">
     {% for version in essays %}
         <li class="card essay-card">
-            <div class="meta">
-                <span class="essay-date">{{ version.published_at.strftime('%b %d, %Y') if version.published_at else 'Unpublished' }}</span>
-                <span class="divider">•</span>
-                <span class="essay-author">{{ version.essay.author_pubkey|author_display }}</span>
-            </div>
-            <h3><a href="/essay/{{ version.essay.identifier }}">{{ version.essay.title }}</a></h3>
-            {% if version.summary %}<p class="essay-summary">{{ version.summary }}</p>{% endif %}
-            {% set topics = version.tags|tags_list %}
-            {% if topics %}
-                <div class="tags">
-                    {% for topic in topics %}
-                        <span class="tag-pill">{{ topic }}</span>
-                    {% endfor %}
+            <div class="stack">
+                <div class="meta-line">
+                    <span class="muted">{{ version.published_at.strftime('%b %d, %Y') if version.published_at else 'Unpublished' }}</span>
+                    <span class="dot" aria-hidden="true">•</span>
+                    <span class="muted">{{ version.essay.author_pubkey|author_display }}</span>
                 </div>
-            {% endif %}
+                <h3 class="essay-title"><a href="/essay/{{ version.essay.identifier }}">{{ version.essay.title }}</a></h3>
+                {% if version.summary %}<p class="muted">{{ version.summary }}</p>{% endif %}
+                {% set topics = version.tags|tags_list %}
+                {% if topics %}
+                    <div class="tags" aria-label="Tags">
+                        {% for topic in topics %}
+                            <span class="badge subtle">{{ topic }}</span>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            </div>
         </li>
     {% else %}
         <li class="card">No essays yet.</li>

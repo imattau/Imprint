@@ -1,24 +1,33 @@
 {% extends 'base.html' %}
+{% block title %}Imprint · Essays{% endblock %}
 {% block content %}
-<h1>All essays</h1>
-<p>Explore the latest published version of every essay.</p>
-<div class="filters">
-    <form action="/essays" method="get" hx-get="/partials/essays" hx-target="#essays-block" hx-swap="outerHTML" hx-push-url="true">
-        <label>Author (npub or hex)
-            <input type="text" name="author" value="{{ filters.author }}" placeholder="npub1...">
-        </label>
-        <label>Tag
-            <input type="text" name="tag" value="{{ filters.tag }}" placeholder="writing">
-        </label>
-        <label>Last days
-            <select name="days">
+<section class="stack">
+    <p class="eyebrow">Library</p>
+    <h1>All essays</h1>
+    <p class="lede">Browse the latest published version of every essay. Use filters to narrow by author, tag, or recentness.</p>
+</section>
+<section class="card">
+    <form class="filter-form" action="/essays" method="get" hx-get="/partials/essays" hx-target="#essays-block" hx-swap="outerHTML" hx-push-url="true">
+        <div class="field">
+            <label for="author">Author (npub or hex)</label>
+            <input id="author" type="text" name="author" value="{{ filters.author }}" placeholder="npub1...">
+        </div>
+        <div class="field">
+            <label for="tag">Tag</label>
+            <input id="tag" type="text" name="tag" value="{{ filters.tag }}" placeholder="writing">
+        </div>
+        <div class="field">
+            <label for="days">Last days</label>
+            <select id="days" name="days">
                 <option value="" {% if not filters.days %}selected{% endif %}>Any</option>
                 <option value="7" {% if filters.days|string == '7' %}selected{% endif %}>7</option>
                 <option value="30" {% if filters.days|string == '30' %}selected{% endif %}>30</option>
             </select>
-        </label>
-        <button type="submit">Apply</button>
+        </div>
+        <div class="field action-field">
+            <button type="submit" class="button">Apply filters</button>
+        </div>
     </form>
-</div>
+</section>
 {% include 'fragments/essays_block.html' %}
 {% endblock %}

@@ -2,19 +2,34 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Imprint</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Imprint{% endblock %}</title>
     <link rel="stylesheet" href="/static/styles.css">
-    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
 </head>
 <body>
-<nav class="topbar">
-    <a href="/">Feed</a>
-    <a href="/essays">Essays</a>
-    <a href="/editor">New Essay</a>
-    <a href="/settings">Settings</a>
-</nav>
-<div class="container">
+<header class="site-header">
+    <div class="shell row space-between align-center">
+        <a href="/" class="brand" aria-label="Imprint home">
+            <span class="brand-mark" aria-hidden="true">✦</span>
+            <span class="brand-text">Imprint</span>
+        </a>
+        <nav class="nav" aria-label="Primary navigation">
+            <a href="/">Home</a>
+            <a href="/essays">Essays</a>
+            <a href="/editor">Editor</a>
+            <a href="/settings">Settings</a>
+            <a href="https://github.com/" target="_blank" rel="noreferrer">GitHub</a>
+        </nav>
+    </div>
+</header>
+<main class="shell page">
     {% block content %}{% endblock %}
-</div>
+</main>
+<footer class="site-footer">
+    <div class="shell">
+        <p class="muted">Imprint helps you publish and revise long-form essays over Nostr relays.</p>
+    </div>
+</footer>
 </body>
 </html>
