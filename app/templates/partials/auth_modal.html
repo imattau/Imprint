@@ -1,0 +1,107 @@
+<div class="modal" id="auth-modal" aria-modal="true" role="dialog">
+    <div class="modal-scrim" onclick="window.closeAuthModal()"></div>
+    <div class="modal-card">
+        <div class="modal-header">
+            <h2>Sign in</h2>
+            <button class="ghost" type="button" onclick="window.closeAuthModal()">×</button>
+        </div>
+        <div class="modal-content">
+            <section class="auth-section" id="extension-auth">
+                <div class="section-header">
+                    <div>
+                        <div class="eyebrow">Extension</div>
+                        <h3>Connect browser signer</h3>
+                        <p class="muted small">Uses NIP-07 compatible extensions. Keys stay in your browser.</p>
+                    </div>
+                    <button class="button" type="button" onclick="window.connectNip07()">Connect browser signer</button>
+                </div>
+            </section>
+
+            <section class="auth-section">
+                <div class="section-header">
+                    <div>
+                        <div class="eyebrow">Remote signer</div>
+                        <h3>Nostr Connect (NIP-46)</h3>
+                        <p class="muted small">Forward signing to a remote device over a relay.</p>
+                    </div>
+                </div>
+                <form class="stack" hx-post="/auth/login/nip46" hx-target="#auth-status" hx-swap="outerHTML" hx-on::after-request="window.closeAuthModal && window.closeAuthModal()">
+                    <label class="field">
+                        <span>Bunker URI</span>
+                        <input type="text" name="bunker" placeholder="bunker://..." />
+                    </label>
+                    <div class="row gap wrap">
+                        <label class="field grow">
+                            <span>Signer pubkey (npub or hex)</span>
+                            <input type="text" name="signer_pubkey" placeholder="npub1..." />
+                        </label>
+                        <label class="field grow">
+                            <span>Relay</span>
+                            <input type="text" name="relay" placeholder="wss://relay.damus.io" />
+                        </label>
+                    </div>
+                    <label class="field">
+                        <span>Session length</span>
+                        <select name="duration">
+                            <option value="15m">15 minutes</option>
+                            <option value="1h" selected>1 hour</option>
+                            <option value="24h">24 hours</option>
+                            <option value="session">Until browser closes</option>
+                        </select>
+                    </label>
+                    <button type="submit">Connect remote signer</button>
+                </form>
+            </section>
+
+            <section class="auth-section">
+                <div class="section-header">
+                    <div>
+                        <div class="eyebrow">Read-only</div>
+                        <h3>Browse with an npub</h3>
+                        <p class="muted small">No signing. Ideal for discovery and preview.</p>
+                    </div>
+                </div>
+                <form class="stack" hx-post="/auth/login/readonly" hx-target="#auth-status" hx-swap="outerHTML" hx-on::after-request="window.closeAuthModal && window.closeAuthModal()">
+                    <label class="field">
+                        <span>npub</span>
+                        <input type="text" name="npub" placeholder="npub1..." required />
+                    </label>
+                    <label class="field">
+                        <span>Session length</span>
+                        <select name="duration">
+                            <option value="15m">15 minutes</option>
+                            <option value="1h" selected>1 hour</option>
+                            <option value="24h">24 hours</option>
+                            <option value="session">Until browser closes</option>
+                        </select>
+                    </label>
+                    <button type="submit" class="ghost">Continue in read-only mode</button>
+                </form>
+            </section>
+
+            {% if settings.nostr_secret %}
+            <section class="auth-section">
+                <div class="section-header">
+                    <div>
+                        <div class="eyebrow">Local (server)</div>
+                        <h3>Use server-owned signer</h3>
+                        <p class="muted small">Server holds the key. Good for quick demos.</p>
+                    </div>
+                </div>
+                <form hx-post="/auth/login/local" hx-target="#auth-status" hx-swap="outerHTML" hx-on::after-request="window.closeAuthModal && window.closeAuthModal()">
+                    <label class="field">
+                        <span>Session length</span>
+                        <select name="duration">
+                            <option value="15m">15 minutes</option>
+                            <option value="1h" selected>1 hour</option>
+                            <option value="24h">24 hours</option>
+                            <option value="session">Until browser closes</option>
+                        </select>
+                    </label>
+                    <button type="submit" class="button">Sign in with local key</button>
+                </form>
+            </section>
+            {% endif %}
+        </div>
+    </div>
+</div>

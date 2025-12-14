@@ -6,6 +6,7 @@
     <title>{% block title %}Imprint{% endblock %}</title>
     <link rel="stylesheet" href="/static/styles.css">
     <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+    <script src="/static/auth.js" defer></script>
 </head>
 <body>
 <header class="site-header">
@@ -21,6 +22,7 @@
             <a href="/settings">Settings</a>
             <a href="https://github.com/" target="_blank" rel="noreferrer">GitHub</a>
         </nav>
+        <div id="auth-status" hx-get="/auth/status" hx-trigger="load" hx-swap="outerHTML"></div>
     </div>
 </header>
 <main class="shell page">

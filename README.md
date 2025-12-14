@@ -19,7 +19,7 @@ poetry install
 cp .env.example .env
 ```
 
-Update the `.env` with one of `NOSTR_NSEC` or `NOSTR_SK_HEX`, your relay list, and optional host/port overrides.
+Update the `.env` with one of `NOSTR_NSEC` or `NOSTR_SK_HEX`, your relay list, a session secret, and optional host/port overrides.
 
 3. Run the development server (hot reload enabled):
 
@@ -32,9 +32,11 @@ Open http://localhost:8000 to use the app.
 
 ## Managing environment
 Key variables consumed via `.env` (see `.env.example`):
-- `NOSTR_NSEC` or `NOSTR_SK_HEX`: private key for signing events (do **not** commit real keys).
+- `NOSTR_NSEC` or `NOSTR_SK_HEX`: private key for signing events (do **not** commit real keys). When present, the UI exposes a "Local (server)" signer option.
 - `NOSTR_RELAYS`: comma-separated list of relays.
 - `DATABASE_URL`: defaults to `sqlite+aiosqlite:///./imprint.db`.
+- `SESSION_SECRET`: required for session cookies (defaults to a development value).
+- `NIP46_RELAY`: optional default relay used when bootstrapping Nostr Connect (NIP-46).
 - `APP_HOST` / `APP_PORT`: optional bind settings for development.
 
 ## Common tasks
@@ -47,6 +49,18 @@ All tasks are exposed through both the `Makefile` and `tasks.py` runner:
 - Lint (Ruff + mypy): `make lint`
 - Initialize the database schema (create tables via SQLAlchemy metadata): `make db`
 - Clean caches: `make clean`
+
+## Authentication & signers
+- A session cookie tracks the active signer. Modes include:
+  - **Extension (NIP-07)**: browser extensions provide the pubkey and sign events client-side.
+  - **Remote signer (NIP-46)**: connect to a bunker:// URI or pubkey+relay; the server requests signatures over a relay.
+  - **Read-only**: supply an `npub` to browse without signing.
+  - **Local (server)**: if `NOSTR_NSEC`/`NOSTR_SK_HEX` is configured, the server signs on your behalf.
+- Open the header **Sign in** control to switch accounts or sign out. Sessions include an expiry option (15m, 1h, 24h, or until the browser closes).
+- Security notes:
+  - The browser flow never asks for `nsec` secrets.
+  - NIP-07 signed events are validated server-side (id/sig/pubkey) before publishing.
+  - NIP-46 sessions create an ephemeral client secret per session and record the chosen relay.
 
 ## Publishing workflow
 1. Visit `/editor` to create a draft. Use **Save draft** to store locally without publishing.

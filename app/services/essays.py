@@ -7,8 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db import models
-from app.nostr.event import build_long_form_event
-from app.nostr.key import NostrKeyError, decode_nip19, derive_pubkey_hex, load_private_key
+from app.nostr.key import NostrKeyError, decode_nip19
 from app.nostr.relay import publish_event
 from app.config import settings
 
@@ -17,7 +16,9 @@ class EssayService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def get_or_create_essay(self, identifier: Optional[str], title: str, author_pubkey: str, summary: Optional[str]):
+    async def get_or_create_essay(
+        self, identifier: Optional[str], title: str, author_pubkey: str, summary: Optional[str]
+    ) -> models.Essay:
         if identifier:
             result = await self.session.execute(select(models.Essay).where(models.Essay.identifier == identifier))
             essay = result.scalars().first()
@@ -47,11 +48,17 @@ class EssayService:
         return (latest.version if latest else 0) + 1
 
     async def save_draft(
-        self, identifier: Optional[str], title: str, content: str, summary: Optional[str], tags: Optional[list[str]] = None
+        self,
+        identifier: Optional[str],
+        title: str,
+        content: str,
+        summary: Optional[str],
+        tags: Optional[list[str]] = None,
+        author_pubkey: str | None = None,
     ) -> models.EssayVersion:
-        sk = load_private_key(settings.nostr_secret)
-        pubkey = derive_pubkey_hex(sk)
-        essay = await self.get_or_create_essay(identifier, title, pubkey, summary)
+        if not author_pubkey:
+            raise NostrKeyError("Author key required")
+        essay = await self.get_or_create_essay(identifier, title, author_pubkey, summary)
         version_num = await self.next_version(essay)
         draft = models.EssayVersion(
             essay_id=essay.id,
@@ -69,28 +76,33 @@ class EssayService:
         await self.session.refresh(draft)
         return draft
 
-    async def publish(
-        self, identifier: Optional[str], title: str, content: str, summary: Optional[str], tags: Optional[list[str]] = None
-    ) -> models.EssayVersion:
-        sk = load_private_key(settings.nostr_secret)
-        pubkey = derive_pubkey_hex(sk)
-        essay = await self.get_or_create_essay(identifier, title, pubkey, summary)
+    async def prepare_publication(
+        self, identifier: Optional[str], title: str, summary: Optional[str], author_pubkey: str
+    ) -> tuple[models.Essay, int, Optional[str]]:
+        essay = await self.get_or_create_essay(identifier, title, author_pubkey, summary)
         version_num = await self.next_version(essay)
         prev_version = await self.latest_version(essay)
         supersedes = prev_version.event_id if prev_version and prev_version.status == "published" else None
+        return essay, version_num, supersedes
 
-        event = build_long_form_event(
-            sk=sk,
-            pubkey=pubkey,
-            identifier=essay.identifier,
-            title=title,
-            content=content,
-            summary=summary,
-            version=version_num,
-            status="published",
-            supersedes=supersedes,
-            topics=tags,
-        )
+    async def publish(
+        self,
+        identifier: Optional[str],
+        title: str,
+        content: str,
+        summary: Optional[str],
+        tags: Optional[list[str]],
+        signed_event: dict,
+        prepared: tuple[models.Essay, int, Optional[str]] | None = None,
+    ) -> models.EssayVersion:
+        pubkey = signed_event.get("pubkey")
+        essay: models.Essay
+        version_num: int
+        supersedes: Optional[str]
+        if prepared:
+            essay, version_num, supersedes = prepared
+        else:
+            essay, version_num, supersedes = await self.prepare_publication(identifier, title, summary, pubkey)
 
         version = models.EssayVersion(
             essay_id=essay.id,
@@ -99,13 +111,13 @@ class EssayService:
             summary=summary,
             tags=",".join(tags) if tags else None,
             status="published",
-            event_id=event["id"],
+            event_id=signed_event.get("id"),
             supersedes_event_id=supersedes,
-            published_at=dt.datetime.fromtimestamp(event["created_at"], dt.timezone.utc),
+            published_at=dt.datetime.fromtimestamp(signed_event.get("created_at"), dt.timezone.utc),
         )
         version.essay = essay
         essay.latest_version = version_num
-        essay.latest_event_id = event["id"]
+        essay.latest_event_id = signed_event.get("id")
         essay.title = title
         essay.summary = summary
         essay.tags = ",".join(tags) if tags else None
@@ -114,7 +126,7 @@ class EssayService:
 
         for relay_url in settings.relay_urls:
             try:
-                await publish_event(relay_url, event)
+                await publish_event(relay_url, signed_event)
             except Exception:
                 continue
         await self.session.refresh(version)

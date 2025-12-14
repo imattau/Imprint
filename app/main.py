@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 from typing import Optional
 from urllib.parse import urlencode
@@ -11,17 +12,30 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from sqlalchemy import select
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
+from app.auth.routes import router as auth_router
+from app.auth.service import get_auth_session, require_signing_session
+from app.auth.schemas import SessionMode
 from app.db import models
 from app.db.session import aengine, get_session
 from app.indexer import run_indexer
+from app.nostr.event import build_long_form_event_template, verify_event, compute_event_id, serialize_event
 from app.nostr.key import NostrKeyError, encode_npub, npub_from_secret
+from app.nostr.signers import SignerError, signer_from_session
 from app.services.essays import EssayService
 
 app = FastAPI(title="Imprint", version="0.1.0")
 templates = Jinja2Templates(directory="app/templates")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret,
+    session_cookie="imprint_session",
+    same_site="lax",
+)
+app.include_router(auth_router)
 
 indexer_task: Optional[asyncio.Task] = None
 
@@ -53,6 +67,18 @@ def tags_list(tags: str | None) -> list[str]:
 
 templates.env.filters["author_display"] = author_display
 templates.env.filters["tags_list"] = tags_list
+
+
+@app.middleware("http")
+async def inject_session(request: Request, call_next):
+    session_data = None
+    try:
+        session_data = get_auth_session(request)
+    except Exception:
+        session_data = None
+    request.state.session = session_data
+    response = await call_next(request)
+    return response
 
 
 def parse_tags_input(raw: Optional[str]) -> list[str]:
@@ -235,18 +261,66 @@ async def publish(
     identifier: Optional[str] = Form(None),
     tags: Optional[str] = Form(None),
     action: str = Form("publish"),
+    signed_event: Optional[str] = Form(None),
 ):
-    try:
-        async with get_session() as session:
-            service = EssayService(session)
-            parsed_tags = parse_tags_input(tags)
-            if action == "draft":
-                draft = await service.save_draft(identifier, title, content, summary, parsed_tags)
-                return RedirectResponse(url=f"/essay/{draft.essay.identifier}", status_code=303)
-            version = await service.publish(identifier, title, content, summary, parsed_tags)
-            return RedirectResponse(url=f"/essay/{version.essay.identifier}", status_code=303)
-    except NostrKeyError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    session_data = require_signing_session(request)
+    signer = signer_from_session(session_data)
+    parsed_tags = parse_tags_input(tags)
+
+    async with get_session() as session:
+        service = EssayService(session)
+        author_pubkey = signer.get_public_key()
+
+        if action == "draft":
+            draft = await service.save_draft(identifier, title, content, summary, parsed_tags, author_pubkey=author_pubkey)
+            return RedirectResponse(url=f"/essay/{draft.essay.identifier}", status_code=303)
+
+        prepared = await service.prepare_publication(identifier, title, summary, author_pubkey)
+        essay, version_num, supersedes = prepared
+        template = build_long_form_event_template(
+            pubkey=author_pubkey,
+            identifier=essay.identifier,
+            title=title,
+            content=content,
+            summary=summary,
+            version=version_num,
+            status="published",
+            supersedes=supersedes,
+            topics=parsed_tags,
+        )
+
+        if session_data.session_mode == SessionMode.nip07:
+            if not signed_event:
+                raise HTTPException(status_code=400, detail="Signed event required from browser")
+            try:
+                event_payload = json.loads(signed_event)
+            except json.JSONDecodeError as exc:
+                raise HTTPException(status_code=400, detail="Invalid event payload") from exc
+            serialized = serialize_event(
+                template["pubkey"], template["created_at"], template["kind"], template["tags"], template["content"]
+            )
+            expected_id = compute_event_id(serialized)
+            if event_payload.get("id") != expected_id:
+                raise HTTPException(status_code=400, detail="Event does not match submitted content")
+            if not verify_event(event_payload):
+                raise HTTPException(status_code=400, detail="Invalid signature")
+            signed = event_payload
+        else:
+            try:
+                signed = await signer.sign_event(template)
+            except SignerError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        version = await service.publish(
+            essay.identifier,
+            title,
+            content,
+            summary,
+            parsed_tags,
+            signed_event=signed,
+            prepared=prepared,
+        )
+        return RedirectResponse(url=f"/essay/{version.essay.identifier}", status_code=303)
 
 
 @app.get("/essay/{identifier}", response_class=HTMLResponse)
@@ -283,6 +357,7 @@ async def settings_page(request: Request):
 
 @app.post("/settings/relays")
 async def add_relay(request: Request, relay_url: str = Form(...)):
+    require_signing_session(request)
     async with get_session() as session:
         existing = await session.execute(select(models.Relay).where(models.Relay.url == relay_url))
         relay = existing.scalars().first()
@@ -292,9 +367,9 @@ async def add_relay(request: Request, relay_url: str = Form(...)):
             await session.commit()
     return RedirectResponse(url="/settings", status_code=303)
 
-
 @app.post("/settings/relays/{relay_id}/delete")
-async def delete_relay(relay_id: int):
+async def delete_relay(relay_id: int, request: Request):
+    require_signing_session(request)
     async with get_session() as session:
         relay = await session.get(models.Relay, relay_id)
         if relay:
@@ -304,7 +379,8 @@ async def delete_relay(relay_id: int):
 
 
 @app.post("/settings/test")
-async def test_relay(relay_url: str = Form(...)):
+async def test_relay(request: Request, relay_url: str = Form(...)):
+    require_signing_session(request)
     try:
         async with websockets.connect(relay_url) as ws:
             await ws.close()

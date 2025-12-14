@@ -1,0 +1,24 @@
+{% if session %}
+<div class="auth-chip" hx-boost="false">
+    <details class="profile-menu">
+        <summary>
+            <span class="avatar">✦</span>
+            <span class="identity">{{ session.display_name or session.npub or session.pubkey_hex }}</span>
+            <span class="muted small">{{ session.session_mode|title }}</span>
+        </summary>
+        <div class="menu">
+            <div class="menu-section">
+                <div class="label">Session</div>
+                <div class="value">{{ session.session_mode }}</div>
+                {% if session.relay %}<div class="value">Relay: {{ session.relay }}</div>{% endif %}
+            </div>
+            <form hx-post="/auth/logout" hx-target="#auth-status" hx-swap="outerHTML" hx-on::after-request="window.closeAuthModal && window.closeAuthModal()">
+                <button type="submit" class="ghost full">Sign out</button>
+            </form>
+            <button type="button" class="ghost full" onclick="window.showAuthModal && window.showAuthModal()">Switch account</button>
+        </div>
+    </details>
+</div>
+{% else %}
+<button id="open-auth" class="button ghost" type="button" onclick="window.showAuthModal && window.showAuthModal()">Sign in</button>
+{% endif %}
