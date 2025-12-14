@@ -28,6 +28,40 @@ def sign_event(sk: SigningKey, event: Dict[str, Any]) -> Dict[str, Any]:
     return event
 
 
+def build_long_form_event_template(
+    pubkey: str,
+    identifier: str,
+    title: str,
+    content: str,
+    summary: Optional[str],
+    version: int,
+    status: str,
+    supersedes: Optional[str] = None,
+    topics: Optional[list[str]] = None,
+) -> Dict[str, Any]:
+    created_at = int(time.time())
+    tags: List[List[str]] = [
+        ["d", identifier],
+        ["title", title],
+        ["published_at", str(created_at)],
+        ["version", str(version)],
+        ["status", status],
+    ]
+    if summary:
+        tags.append(["summary", summary])
+    if supersedes:
+        tags.append(["supersedes", supersedes])
+    for topic in topics or []:
+        tags.append(["t", topic])
+    return {
+        "pubkey": pubkey,
+        "created_at": created_at,
+        "kind": 30023,
+        "tags": tags,
+        "content": content,
+    }
+
+
 def verify_event(event: Dict[str, Any]) -> bool:
     try:
         serialized = serialize_event(event["pubkey"], event["created_at"], event["kind"], event.get("tags", []), event.get("content", ""))

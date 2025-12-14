@@ -1,0 +1,102 @@
+import json
+from typing import Any
+
+from fastapi import APIRouter, Body, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+
+from app.auth.schemas import SessionMode
+from app.auth.service import (
+    clear_session,
+    create_local_session,
+    create_nip07_session,
+    create_nip46_session,
+    create_readonly_session,
+    get_auth_session,
+    parse_bunker_uri,
+    validate_signed_event_payload,
+)
+from app.nostr.event import verify_event
+from app.config import settings
+
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+templates = Jinja2Templates(directory="app/templates")
+
+
+@router.get("/modal", response_class=HTMLResponse)
+async def auth_modal(request: Request):
+    session = get_auth_session(request)
+    return templates.TemplateResponse("partials/auth_modal.html", {"request": request, "session": session, "settings": settings})
+
+
+@router.get("/status", response_class=HTMLResponse)
+async def auth_status(request: Request):
+    session = get_auth_session(request)
+    return templates.TemplateResponse("partials/auth_status.html", {"request": request, "session": session})
+
+
+@router.post("/login/readonly", response_class=HTMLResponse)
+async def login_readonly(request: Request, npub: str = Form(...), duration: str = Form("1h")):
+    create_readonly_session(request, npub, duration)
+    return await auth_status(request)
+
+
+@router.post("/login/nip07", response_class=HTMLResponse)
+async def login_nip07(request: Request, payload: Any = Body(...)):
+    if isinstance(payload, dict):
+        pubkey_hex = payload.get("pubkey")
+        duration = payload.get("duration", "1h")
+    else:
+        try:
+            data = json.loads(payload)
+            pubkey_hex = data.get("pubkey")
+            duration = data.get("duration", "1h")
+        except Exception as exc:  # pragma: no cover - defensive
+            raise HTTPException(status_code=400, detail="Invalid payload") from exc
+    if not pubkey_hex:
+        raise HTTPException(status_code=400, detail="Missing pubkey")
+    create_nip07_session(request, pubkey_hex, duration)
+    return await auth_status(request)
+
+
+@router.post("/login/nip46", response_class=HTMLResponse)
+async def login_nip46(
+    request: Request,
+    bunker: str = Form(""),
+    signer_pubkey: str = Form(""),
+    relay: str = Form(""),
+    duration: str = Form("1h"),
+):
+    parsed = {"signer_pubkey": signer_pubkey, "relay": relay}
+    if bunker:
+        parsed = parse_bunker_uri(bunker)
+    if not parsed.get("signer_pubkey"):
+        raise HTTPException(status_code=400, detail="Signer pubkey required")
+    relay_url = parsed.get("relay") or relay
+    create_nip46_session(request, parsed["signer_pubkey"], relay_url, duration)
+    return await auth_status(request)
+
+
+@router.post("/login/local", response_class=HTMLResponse)
+async def login_local(request: Request, duration: str = Form("1h")):
+    create_local_session(request, duration)
+    return await auth_status(request)
+
+
+@router.post("/logout", response_class=HTMLResponse)
+async def logout(request: Request):
+    clear_session(request)
+    return await auth_status(request)
+
+
+@router.post("/nip07/sign", response_class=JSONResponse)
+async def nip07_submit_signed_event(request: Request, event: Any = Body(...)):
+    session = get_auth_session(request)
+    if not session or session.session_mode != SessionMode.nip07:
+        raise HTTPException(status_code=403, detail="NIP-07 session required")
+    validate_signed_event_payload(event, session.pubkey_hex or "")
+    if not verify_event(event):
+        raise HTTPException(status_code=400, detail="Invalid signature")
+    return {"status": "ok"}
+

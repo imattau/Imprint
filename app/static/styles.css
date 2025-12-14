@@ -325,6 +325,63 @@ button.ghost:hover,
     background: #f1eadf;
     color: var(--muted);
 }
+.auth-chip {
+    position: relative;
+}
+
+.profile-menu summary {
+    list-style: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    cursor: pointer;
+}
+
+.profile-menu[open] summary {
+    background: #f1eadf;
+}
+
+.profile-menu .avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #e7e0d2;
+    font-weight: 700;
+}
+
+.profile-menu .menu {
+    position: absolute;
+    right: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.75rem;
+    box-shadow: var(--shadow);
+    display: grid;
+    gap: 0.5rem;
+    min-width: 220px;
+    z-index: 20;
+}
+
+.profile-menu .menu-section {
+    display: grid;
+    gap: 0.25rem;
+}
+
+.profile-menu .label {
+    font-weight: 700;
+}
+
+.profile-menu .value {
+    color: var(--muted);
+    font-size: 0.95rem;
+}
 
 .ordering-note {
     color: var(--muted);
@@ -453,6 +510,80 @@ button.ghost:hover,
 
 .site-footer p {
     margin: 0;
+}
+
+.modal {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+}
+
+.modal.visible {
+    display: flex;
+}
+
+.modal-open {
+    overflow: hidden;
+}
+
+.modal-scrim {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(2px);
+}
+
+.modal-card {
+    position: relative;
+    background: var(--surface);
+    border-radius: 16px;
+    padding: 1.25rem;
+    width: min(520px, calc(100% - 1.5rem));
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border);
+    z-index: 60;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.modal-content {
+    display: grid;
+    gap: 1rem;
+}
+
+.auth-section {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    background: #fff;
+}
+
+.auth-section .section-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+}
+
+.muted-section {
+    opacity: 0.5;
+}
+
+.auth-section button.full,
+.profile-menu button.full {
+    width: 100%;
 }
 
 @media (min-width: 900px) {

@@ -14,6 +14,8 @@ class Settings(BaseModel):
     database_url: str = get_env("DATABASE_URL") or "sqlite+aiosqlite:///./imprint.db"
     relay_urls: list[str] = []
     nostr_secret: str | None = get_env("NOSTR_NSEC") or get_env("NOSTR_SK_HEX")
+    session_secret: str = get_env("SESSION_SECRET") or "change-me-session-key"
+    nip46_default_relay: str = get_env("NIP46_RELAY") or "wss://relay.damus.io"
 
 
 try:
