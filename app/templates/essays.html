@@ -1,15 +1,9 @@
 {% extends 'base.html' %}
 {% block content %}
-<section class="hero">
-    <div>
-        <h1>Recently published</h1>
-        <p>Newest essays arrive here as we see them from relays. Browse by author, time, or topic.</p>
-    </div>
-    <a class="secondary" href="/essays">Browse all</a>
-</section>
-
+<h1>All essays</h1>
+<p>Explore the latest published version of every essay.</p>
 <div class="filters">
-    <form action="/" method="get" hx-get="/partials/recent" hx-target="#recent-list" hx-swap="innerHTML" hx-push-url="true">
+    <form action="/essays" method="get" hx-get="/partials/essays" hx-target="#essays-block" hx-swap="outerHTML" hx-push-url="true">
         <label>Author (npub or hex)
             <input type="text" name="author" value="{{ filters.author }}" placeholder="npub1...">
         </label>
@@ -26,9 +20,5 @@
         <button type="submit">Apply</button>
     </form>
 </div>
-
-<div id="recent-list">
-    {% include 'fragments/essays_list.html' %}
-</div>
-<p class="ordering-note">Ordered by publish time observed from relays. No ranking applied.</p>
+{% include 'fragments/essays_block.html' %}
 {% endblock %}

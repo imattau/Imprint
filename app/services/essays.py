@@ -2,12 +2,13 @@ import datetime as dt
 import secrets
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.db import models
 from app.nostr.event import build_long_form_event
-from app.nostr.key import derive_pubkey_hex, load_private_key
+from app.nostr.key import NostrKeyError, decode_nip19, derive_pubkey_hex, load_private_key
 from app.nostr.relay import publish_event
 from app.config import settings
 
@@ -45,7 +46,9 @@ class EssayService:
         latest = await self.latest_version(essay)
         return (latest.version if latest else 0) + 1
 
-    async def save_draft(self, identifier: Optional[str], title: str, content: str, summary: Optional[str]) -> models.EssayVersion:
+    async def save_draft(
+        self, identifier: Optional[str], title: str, content: str, summary: Optional[str], tags: Optional[list[str]] = None
+    ) -> models.EssayVersion:
         sk = load_private_key(settings.nostr_secret)
         pubkey = derive_pubkey_hex(sk)
         essay = await self.get_or_create_essay(identifier, title, pubkey, summary)
@@ -55,6 +58,7 @@ class EssayService:
             version=version_num,
             content=content,
             summary=summary,
+            tags=",".join(tags) if tags else None,
             status="draft",
             created_at=dt.datetime.now(dt.timezone.utc),
         )
@@ -65,7 +69,9 @@ class EssayService:
         await self.session.refresh(draft)
         return draft
 
-    async def publish(self, identifier: Optional[str], title: str, content: str, summary: Optional[str]) -> models.EssayVersion:
+    async def publish(
+        self, identifier: Optional[str], title: str, content: str, summary: Optional[str], tags: Optional[list[str]] = None
+    ) -> models.EssayVersion:
         sk = load_private_key(settings.nostr_secret)
         pubkey = derive_pubkey_hex(sk)
         essay = await self.get_or_create_essay(identifier, title, pubkey, summary)
@@ -83,6 +89,7 @@ class EssayService:
             version=version_num,
             status="published",
             supersedes=supersedes,
+            topics=tags,
         )
 
         version = models.EssayVersion(
@@ -90,6 +97,7 @@ class EssayService:
             version=version_num,
             content=content,
             summary=summary,
+            tags=",".join(tags) if tags else None,
             status="published",
             event_id=event["id"],
             supersedes_event_id=supersedes,
@@ -100,6 +108,7 @@ class EssayService:
         essay.latest_event_id = event["id"]
         essay.title = title
         essay.summary = summary
+        essay.tags = ",".join(tags) if tags else None
         self.session.add(version)
         await self.session.commit()
 
@@ -111,15 +120,50 @@ class EssayService:
         await self.session.refresh(version)
         return version
 
-    async def list_recent(self, author: Optional[str] = None, topic: Optional[str] = None, days: int | None = None):
-        query = select(models.Essay).order_by(models.Essay.updated_at.desc()).limit(50)
-        if author:
-            query = query.where(models.Essay.author_pubkey == author)
+    async def list_latest_published(
+        self,
+        author: Optional[str] = None,
+        tag: Optional[str] = None,
+        days: int | None = None,
+        limit: int = 15,
+        offset: int = 0,
+    ):
+        subquery = (
+            select(
+                models.EssayVersion.essay_id,
+                func.max(models.EssayVersion.version).label("max_version"),
+            )
+            .where(models.EssayVersion.status == "published")
+            .group_by(models.EssayVersion.essay_id)
+        ).subquery()
+
+        query = (
+            select(models.EssayVersion)
+            .join(
+                subquery,
+                (models.EssayVersion.essay_id == subquery.c.essay_id)
+                & (models.EssayVersion.version == subquery.c.max_version),
+            )
+            .join(models.Essay)
+            .options(selectinload(models.EssayVersion.essay))
+        )
+
+        author_hex = author
+        if author and author.startswith("npub"):
+            try:
+                author_hex = decode_nip19(author)
+            except NostrKeyError:
+                author_hex = None
+        if author_hex:
+            query = query.where(models.Essay.author_pubkey == author_hex)
         if days:
             cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)
-            query = query.where(models.Essay.updated_at >= cutoff)
+            query = query.where(models.EssayVersion.published_at >= cutoff)
+        if tag:
+            query = query.where(models.EssayVersion.tags.ilike(f"%{tag}%"))
+        query = query.order_by(models.EssayVersion.published_at.desc()).offset(offset).limit(limit)
         result = await self.session.execute(query)
-        return result.scalars().all()
+        return result.scalars().unique().all()
 
     async def fetch_history(self, identifier: str):
         result = await self.session.execute(

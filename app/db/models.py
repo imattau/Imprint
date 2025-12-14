@@ -12,6 +12,7 @@ class Essay(Base):
     title = Column(String(255))
     author_pubkey = Column(String(128), index=True)
     summary = Column(Text)
+    tags = Column(Text)
     latest_version = Column(Integer, default=1)
     latest_event_id = Column(String(128))
     created_at = Column(DateTime, default=lambda: dt.datetime.now(dt.timezone.utc))
@@ -38,6 +39,7 @@ class EssayVersion(Base):
     event_id = Column(String(128), index=True)
     supersedes_event_id = Column(String(128))
     published_at = Column(DateTime)
+    tags = Column(Text)
     created_at = Column(DateTime, default=lambda: dt.datetime.now(dt.timezone.utc))
 
     essay = relationship("Essay", back_populates="versions", lazy="joined")

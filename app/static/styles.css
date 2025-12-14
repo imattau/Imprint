@@ -11,3 +11,17 @@ button:hover { background: #004999; }
 .meta { color: #666; font-size: 0.9em; }
 .preview { border: 1px solid #e0e0e0; padding: 10px; min-height: 120px; }
 .warning { color: #b20000; }
+.hero { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.hero p { margin: 0; color: #555; }
+.filters form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; align-items: end; }
+.filters label { display: flex; flex-direction: column; font-size: 0.9em; color: #333; }
+.secondary { color: #0066cc; text-decoration: none; border: 1px solid #0066cc; padding: 6px 10px; border-radius: 6px; }
+.secondary:hover { background: #0066cc; color: white; }
+.essay-list { list-style: none; padding: 0; margin: 0; }
+.essay-card h3 { margin: 6px 0; }
+.essay-summary { color: #444; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.tag-pill { background: #eef2ff; color: #334; padding: 4px 8px; border-radius: 12px; font-size: 0.85em; }
+.divider { margin: 0 6px; color: #bbb; }
+.ordering-note { color: #666; font-size: 0.9em; margin-top: 12px; }
+.load-more { margin-top: 12px; }
