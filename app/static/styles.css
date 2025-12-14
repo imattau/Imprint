@@ -398,6 +398,30 @@ button.ghost:hover,
     margin: 0 auto;
 }
 
+.alert {
+    border: 1px solid #e4cbb4;
+    background: #fdf6ed;
+    color: #5f3b2a;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius);
+}
+
+.alert.success {
+    border-color: #b7dfc4;
+    background: #eef7f0;
+    color: #245859;
+}
+
+.save-bar {
+    position: sticky;
+    bottom: 0;
+    background: rgba(255, 253, 248, 0.95);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.75rem 1rem;
+    box-shadow: var(--shadow);
+}
+
 .essay-heading {
     font-size: clamp(2rem, 3vw, 2.5rem);
 }

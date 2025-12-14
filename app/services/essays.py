@@ -93,6 +93,7 @@ class EssayService:
         summary: Optional[str],
         tags: Optional[list[str]],
         signed_event: dict,
+        relay_urls: Optional[list[str]] = None,
         prepared: tuple[models.Essay, int, Optional[str]] | None = None,
     ) -> models.EssayVersion:
         pubkey = signed_event.get("pubkey")
@@ -124,7 +125,8 @@ class EssayService:
         self.session.add(version)
         await self.session.commit()
 
-        for relay_url in settings.relay_urls:
+        target_relays = relay_urls if relay_urls is not None else settings.relay_urls
+        for relay_url in target_relays:
             try:
                 await publish_event(relay_url, signed_event)
             except Exception:

@@ -1,0 +1,183 @@
+from __future__ import annotations
+
+import secrets
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Form, Request, status
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.admin.service import (
+    admin_token,
+    clear_admin_session,
+    coerce_payload,
+    ensure_admin_csrf,
+    has_allowlisted_pubkey,
+    issue_admin_session,
+    require_admin,
+    validate_admin_csrf,
+    InstanceSettingsService,
+)
+from app.auth.service import get_auth_session
+from app.db.session import get_session
+
+
+router = APIRouter(prefix="/admin", tags=["admin"])
+templates = Jinja2Templates(directory="app/templates")
+
+
+async def db_session():
+    async with get_session() as session:
+        yield session
+
+
+@router.get("/", response_class=HTMLResponse)
+async def admin_home(request: Request, session: AsyncSession = Depends(db_session)):
+    settings = await InstanceSettingsService(session).get_settings()
+    csrf = ensure_admin_csrf(request)
+    if not request.session.get("is_admin") and has_allowlisted_pubkey(request):
+        issue_admin_session(request)
+        return RedirectResponse(url="/admin", status_code=status.HTTP_303_SEE_OTHER)
+    if not request.session.get("is_admin"):
+        context = {
+            "request": request,
+            "is_admin": False,
+            "allowlisted": has_allowlisted_pubkey(request),
+            "has_token": bool(admin_token()),
+            "error": None,
+            "settings": settings,
+            "csrf": csrf,
+        }
+        return templates.TemplateResponse("admin/index.html", context)
+
+    auth_session = get_auth_session(request)
+    context = {
+        "request": request,
+        "is_admin": True,
+        "settings": settings,
+        "csrf": csrf,
+        "auth_session": auth_session,
+    }
+    return templates.TemplateResponse("admin/index.html", context)
+
+
+@router.post("/login")
+async def admin_login(
+    request: Request,
+    session: AsyncSession = Depends(db_session),
+    admin_token_input: str = Form(""),
+    csrf: str = Form(""),
+):
+    validate_admin_csrf(request, csrf)
+    token_env = admin_token()
+    allowlisted = has_allowlisted_pubkey(request)
+    if (token_env and admin_token_input.strip() and secrets.compare_digest(admin_token_input.strip(), token_env)) or allowlisted:
+        issue_admin_session(request)
+        return RedirectResponse(url="/admin", status_code=status.HTTP_303_SEE_OTHER)
+
+    settings_error_context = {
+        "request": request,
+        "is_admin": False,
+        "allowlisted": allowlisted,
+        "has_token": bool(token_env),
+        "error": "Invalid admin token" if admin_token_input else "Admin credentials required",
+        "settings": await InstanceSettingsService(session).get_settings(),
+        "csrf": ensure_admin_csrf(request),
+    }
+    return templates.TemplateResponse("admin/index.html", settings_error_context, status_code=status.HTTP_401_UNAUTHORIZED)
+
+
+@router.post("/logout")
+async def admin_logout(request: Request, csrf: str = Form("")):
+    validate_admin_csrf(request, csrf)
+    clear_admin_session(request)
+    return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request, session: AsyncSession = Depends(db_session)):
+    require_admin(request)
+    settings_service = InstanceSettingsService(session)
+    settings = await settings_service.get_settings()
+    context = {
+        "request": request,
+        "settings": settings,
+        "csrf": ensure_admin_csrf(request),
+    }
+    return templates.TemplateResponse("admin/settings.html", context)
+
+
+@router.post("/settings")
+async def save_settings(
+    request: Request,
+    session: AsyncSession = Depends(db_session),
+    site_name: str = Form("Imprint"),
+    site_tagline: Optional[str] = Form(None),
+    site_description: Optional[str] = Form(None),
+    public_base_url: Optional[str] = Form(None),
+    default_relays: Optional[str] = Form(None),
+    instance_nostr_address: Optional[str] = Form(None),
+    instance_admin_npub: Optional[str] = Form(None),
+    lightning_address: Optional[str] = Form(None),
+    donation_message: Optional[str] = Form(None),
+    enable_payments: Optional[str] = Form(None),
+    enable_public_essays_feed: Optional[str] = Form(None),
+    enable_registrationless_readonly: Optional[str] = Form(None),
+    max_feed_items: Optional[str] = Form(None),
+    session_default_minutes: Optional[str] = Form(None),
+    theme_accent: Optional[str] = Form(None),
+    csrf: str = Form(""),
+):
+    require_admin(request)
+    validate_admin_csrf(request, csrf)
+    form_data = {
+        "site_name": site_name,
+        "site_tagline": site_tagline,
+        "site_description": site_description,
+        "public_base_url": public_base_url,
+        "default_relays": default_relays,
+        "instance_nostr_address": instance_nostr_address,
+        "instance_admin_npub": instance_admin_npub,
+        "lightning_address": lightning_address,
+        "donation_message": donation_message,
+        "enable_payments": enable_payments,
+        "enable_public_essays_feed": enable_public_essays_feed,
+        "enable_registrationless_readonly": enable_registrationless_readonly,
+        "max_feed_items": max_feed_items,
+        "session_default_minutes": session_default_minutes,
+        "theme_accent": theme_accent,
+    }
+    try:
+        payload = coerce_payload(form_data)
+    except ValidationError as exc:
+        return templates.TemplateResponse(
+            "admin/settings.html",
+            {
+                "request": request,
+                "settings": form_data,
+                "errors": exc.errors(),
+                "csrf": ensure_admin_csrf(request),
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    settings_service = InstanceSettingsService(session)
+    auth_session = get_auth_session(request)
+    updated_by = auth_session.pubkey_hex if auth_session else None
+    settings_obj = await settings_service.update_settings(payload, updated_by)
+    context = {
+        "request": request,
+        "settings": settings_obj,
+        "saved": True,
+        "csrf": ensure_admin_csrf(request),
+    }
+    return templates.TemplateResponse("admin/settings.html", context)
+
+
+@router.get("/health")
+async def admin_health(request: Request):
+    require_admin(request)
+    return {"status": "ok", "is_admin": True}
+

@@ -16,11 +16,14 @@ class Settings(BaseModel):
     nostr_secret: str | None = get_env("NOSTR_NSEC") or get_env("NOSTR_SK_HEX")
     session_secret: str = get_env("SESSION_SECRET") or "change-me-session-key"
     nip46_default_relay: str = get_env("NIP46_RELAY") or "wss://relay.damus.io"
+    admin_token: str | None = get_env("ADMIN_TOKEN")
+    admin_npubs: list[str] = []
 
 
 try:
     settings = Settings(
         relay_urls=[u for u in (get_env("NOSTR_RELAYS") or "wss://relay.damus.io,wss://nos.lol").split(",") if u],
+        admin_npubs=[u for u in (get_env("ADMIN_NPUBS") or "").split(",") if u],
     )
 except ValidationError:
     settings = Settings()

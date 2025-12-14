@@ -62,6 +62,19 @@ All tasks are exposed through both the `Makefile` and `tasks.py` runner:
   - NIP-07 signed events are validated server-side (id/sig/pubkey) before publishing.
   - NIP-46 sessions create an ephemeral client secret per session and record the chosen relay.
 
+## Admin console
+- Administrators manage instance-wide settings at `/admin`.
+- Configure either or both access gates:
+  - `ADMIN_TOKEN`: secret string entered into the admin login form.
+  - `ADMIN_NPUBS`: comma-separated npubs allowed to elevate. A matching signed-in npub automatically gains admin status.
+- Admin POST forms use a session-scoped CSRF token; admin state is stored separately from user sessions via `is_admin`.
+- The settings page controls:
+  - Branding: `site_name`, `site_tagline`, `site_description`, `public_base_url`, `theme_accent`.
+  - Discovery: `default_relays` (fallback for publishing/indexing), `max_feed_items`, `enable_public_essays_feed`.
+  - Sessions: `session_default_minutes`, `enable_registrationless_readonly`.
+  - Admin identity & payments: `instance_nostr_address`, `instance_admin_npub`, `lightning_address`, `donation_message`, `enable_payments`.
+- Footer and header reflect the saved settings (site name, contact identity, optional Lightning donation line). The homepage hero copies the tagline/description.
+
 ## Publishing workflow
 1. Visit `/editor` to create a draft. Use **Save draft** to store locally without publishing.
 2. Use **Publish** to create a Nostr long-form (kind 30023) event with tags:

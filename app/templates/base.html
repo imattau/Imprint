@@ -1,10 +1,16 @@
 <!doctype html>
 <html lang="en">
 <head>
+    {% set instance_settings = request.state.instance_settings %}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}Imprint{% endblock %}</title>
+    <title>{% block title %}{{ instance_settings.site_name if instance_settings else 'Imprint' }}{% endblock %}</title>
     <link rel="stylesheet" href="/static/styles.css">
+    {% if instance_settings and instance_settings.theme_accent %}
+    <style>
+        :root { --accent: {{ instance_settings.theme_accent }}; }
+    </style>
+    {% endif %}
     <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
     <script src="/static/auth.js" defer></script>
 </head>
@@ -13,7 +19,7 @@
     <div class="shell row space-between align-center">
         <a href="/" class="brand" aria-label="Imprint home">
             <span class="brand-mark" aria-hidden="true">✦</span>
-            <span class="brand-text">Imprint</span>
+            <span class="brand-text">{{ instance_settings.site_name if instance_settings else 'Imprint' }}</span>
         </a>
         <nav class="nav" aria-label="Primary navigation">
             <a href="/">Home</a>
@@ -21,8 +27,16 @@
             <a href="/editor">Editor</a>
             <a href="/settings">Settings</a>
             <a href="https://github.com/" target="_blank" rel="noreferrer">GitHub</a>
+            {% if request.state.is_admin %}
+                <a href="/admin">Admin</a>
+            {% endif %}
         </nav>
-        <div id="auth-status" hx-get="/auth/status" hx-trigger="load" hx-swap="outerHTML"></div>
+        <div class="row gap align-center">
+            {% if request.state.is_admin %}
+                {% include 'partials/admin_badge.html' %}
+            {% endif %}
+            <div id="auth-status" hx-get="/auth/status" hx-trigger="load" hx-swap="outerHTML"></div>
+        </div>
     </div>
 </header>
 <main class="shell page">
@@ -30,7 +44,34 @@
 </main>
 <footer class="site-footer">
     <div class="shell">
-        <p class="muted">Imprint helps you publish and revise long-form essays over Nostr relays.</p>
+        <div class="stack">
+            <p class="muted">
+                {% if instance_settings and instance_settings.site_description %}
+                    {{ instance_settings.site_description }}
+                {% else %}
+                    Imprint helps you publish and revise long-form essays over Nostr relays.
+                {% endif %}
+            </p>
+            <div class="row gap wrap muted small">
+                {% if instance_settings and instance_settings.enable_payments and instance_settings.lightning_address %}
+                    <span>⚡ Support this instance: {{ instance_settings.lightning_address }}</span>
+                    {% if instance_settings.donation_message %}
+                        <span class="dot">•</span>
+                        <span>{{ instance_settings.donation_message }}</span>
+                    {% endif %}
+                {% endif %}
+                {% if instance_settings and (instance_settings.instance_nostr_address or instance_settings.instance_admin_npub) %}
+                    <span>Contact:</span>
+                    {% if instance_settings.instance_nostr_address %}
+                        <span>{{ instance_settings.instance_nostr_address }}</span>
+                    {% endif %}
+                    {% if instance_settings.instance_admin_npub %}
+                        <span class="dot">•</span>
+                        <span>{{ instance_settings.instance_admin_npub }}</span>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
     </div>
 </footer>
 </body>

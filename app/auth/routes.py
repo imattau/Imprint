@@ -38,7 +38,11 @@ async def auth_status(request: Request):
 
 @router.post("/login/readonly", response_class=HTMLResponse)
 async def login_readonly(request: Request, npub: str = Form(...), duration: str = Form("1h")):
-    create_readonly_session(request, npub, duration)
+    instance_settings = getattr(request.state, "instance_settings", None)
+    if instance_settings and not instance_settings.enable_registrationless_readonly:
+        raise HTTPException(status_code=403, detail="Read-only sessions disabled")
+    default_minutes = instance_settings.session_default_minutes if instance_settings else 60
+    create_readonly_session(request, npub, duration, default_minutes=default_minutes)
     return await auth_status(request)
 
 
@@ -56,7 +60,9 @@ async def login_nip07(request: Request, payload: Any = Body(...)):
             raise HTTPException(status_code=400, detail="Invalid payload") from exc
     if not pubkey_hex:
         raise HTTPException(status_code=400, detail="Missing pubkey")
-    create_nip07_session(request, pubkey_hex, duration)
+    instance_settings = getattr(request.state, "instance_settings", None)
+    default_minutes = instance_settings.session_default_minutes if instance_settings else 60
+    create_nip07_session(request, pubkey_hex, duration, default_minutes=default_minutes)
     return await auth_status(request)
 
 
@@ -74,13 +80,17 @@ async def login_nip46(
     if not parsed.get("signer_pubkey"):
         raise HTTPException(status_code=400, detail="Signer pubkey required")
     relay_url = parsed.get("relay") or relay
-    create_nip46_session(request, parsed["signer_pubkey"], relay_url, duration)
+    instance_settings = getattr(request.state, "instance_settings", None)
+    default_minutes = instance_settings.session_default_minutes if instance_settings else 60
+    create_nip46_session(request, parsed["signer_pubkey"], relay_url, duration, default_minutes=default_minutes)
     return await auth_status(request)
 
 
 @router.post("/login/local", response_class=HTMLResponse)
 async def login_local(request: Request, duration: str = Form("1h")):
-    create_local_session(request, duration)
+    instance_settings = getattr(request.state, "instance_settings", None)
+    default_minutes = instance_settings.session_default_minutes if instance_settings else 60
+    create_local_session(request, duration, default_minutes=default_minutes)
     return await auth_status(request)
 
 

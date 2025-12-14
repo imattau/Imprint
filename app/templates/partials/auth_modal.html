@@ -1,5 +1,16 @@
 <div class="modal" id="auth-modal" aria-modal="true" role="dialog">
     <div class="modal-scrim" onclick="window.closeAuthModal()"></div>
+    {% set instance_settings = request.state.instance_settings %}
+    {% set default_minutes = instance_settings.session_default_minutes if instance_settings else 60 %}
+    {% if default_minutes == 60 %}
+        {% set default_value = '1h' %}
+    {% elif default_minutes == 15 %}
+        {% set default_value = '15m' %}
+    {% elif default_minutes == 1440 %}
+        {% set default_value = '24h' %}
+    {% else %}
+        {% set default_value = default_minutes ~ 'm' %}
+    {% endif %}
     <div class="modal-card">
         <div class="modal-header">
             <h2>Sign in</h2>
@@ -43,41 +54,59 @@
                     <label class="field">
                         <span>Session length</span>
                         <select name="duration">
-                            <option value="15m">15 minutes</option>
-                            <option value="1h" selected>1 hour</option>
-                            <option value="24h">24 hours</option>
-                            <option value="session">Until browser closes</option>
+                            <option value="15m" {% if default_value == '15m' %}selected{% endif %}>15 minutes</option>
+                            <option value="1h" {% if default_value == '1h' %}selected{% endif %}>1 hour</option>
+                            <option value="24h" {% if default_value == '24h' %}selected{% endif %}>24 hours</option>
+                            {% if default_value not in ['15m', '1h', '24h', 'session'] %}
+                                <option value="{{ default_value }}" selected>{{ default_minutes }} minutes</option>
+                            {% endif %}
+                            <option value="session" {% if default_value == 'session' %}selected{% endif %}>Until browser closes</option>
                         </select>
                     </label>
                     <button type="submit">Connect remote signer</button>
                 </form>
             </section>
 
-            <section class="auth-section">
-                <div class="section-header">
-                    <div>
-                        <div class="eyebrow">Read-only</div>
-                        <h3>Browse with an npub</h3>
-                        <p class="muted small">No signing. Ideal for discovery and preview.</p>
+            {% if not instance_settings or instance_settings.enable_registrationless_readonly %}
+                <section class="auth-section">
+                    <div class="section-header">
+                        <div>
+                            <div class="eyebrow">Read-only</div>
+                            <h3>Browse with an npub</h3>
+                            <p class="muted small">No signing. Ideal for discovery and preview.</p>
+                        </div>
                     </div>
-                </div>
-                <form class="stack" hx-post="/auth/login/readonly" hx-target="#auth-status" hx-swap="outerHTML" hx-on::after-request="window.closeAuthModal && window.closeAuthModal()">
-                    <label class="field">
-                        <span>npub</span>
-                        <input type="text" name="npub" placeholder="npub1..." required />
-                    </label>
-                    <label class="field">
-                        <span>Session length</span>
-                        <select name="duration">
-                            <option value="15m">15 minutes</option>
-                            <option value="1h" selected>1 hour</option>
-                            <option value="24h">24 hours</option>
-                            <option value="session">Until browser closes</option>
-                        </select>
-                    </label>
-                    <button type="submit" class="ghost">Continue in read-only mode</button>
-                </form>
-            </section>
+                    <form class="stack" hx-post="/auth/login/readonly" hx-target="#auth-status" hx-swap="outerHTML" hx-on::after-request="window.closeAuthModal && window.closeAuthModal()">
+                        <label class="field">
+                            <span>npub</span>
+                            <input type="text" name="npub" placeholder="npub1..." required />
+                        </label>
+                        <label class="field">
+                            <span>Session length</span>
+                            <select name="duration">
+                                <option value="15m" {% if default_value == '15m' %}selected{% endif %}>15 minutes</option>
+                                <option value="1h" {% if default_value == '1h' %}selected{% endif %}>1 hour</option>
+                                <option value="24h" {% if default_value == '24h' %}selected{% endif %}>24 hours</option>
+                                {% if default_value not in ['15m', '1h', '24h', 'session'] %}
+                                    <option value="{{ default_value }}" selected>{{ default_minutes }} minutes</option>
+                                {% endif %}
+                                <option value="session" {% if default_value == 'session' %}selected{% endif %}>Until browser closes</option>
+                            </select>
+                        </label>
+                        <button type="submit" class="ghost">Continue in read-only mode</button>
+                    </form>
+                </section>
+            {% else %}
+                <section class="auth-section">
+                    <div class="section-header">
+                        <div>
+                            <div class="eyebrow">Read-only</div>
+                            <h3>Disabled by admin</h3>
+                            <p class="muted small">Registrationless read-only access is turned off for this instance.</p>
+                        </div>
+                    </div>
+                </section>
+            {% endif %}
 
             {% if settings.nostr_secret %}
             <section class="auth-section">
@@ -92,10 +121,13 @@
                     <label class="field">
                         <span>Session length</span>
                         <select name="duration">
-                            <option value="15m">15 minutes</option>
-                            <option value="1h" selected>1 hour</option>
-                            <option value="24h">24 hours</option>
-                            <option value="session">Until browser closes</option>
+                            <option value="15m" {% if default_value == '15m' %}selected{% endif %}>15 minutes</option>
+                            <option value="1h" {% if default_value == '1h' %}selected{% endif %}>1 hour</option>
+                            <option value="24h" {% if default_value == '24h' %}selected{% endif %}>24 hours</option>
+                            {% if default_value not in ['15m', '1h', '24h', 'session'] %}
+                                <option value="{{ default_value }}" selected>{{ default_minutes }} minutes</option>
+                            {% endif %}
+                            <option value="session" {% if default_value == 'session' %}selected{% endif %}>Until browser closes</option>
                         </select>
                     </label>
                     <button type="submit" class="button">Sign in with local key</button>

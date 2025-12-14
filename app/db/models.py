@@ -1,5 +1,5 @@
 import datetime as dt
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -54,3 +54,31 @@ class Relay(Base):
     status = Column(String(50), default="unknown")
     last_checked = Column(DateTime)
     created_at = Column(DateTime, default=lambda: dt.datetime.now(dt.timezone.utc))
+
+
+class InstanceSettings(Base):
+    __tablename__ = "instance_settings"
+
+    id = Column(Integer, primary_key=True)
+    site_name = Column(String(120), default="Imprint")
+    site_tagline = Column(String(255))
+    site_description = Column(Text)
+    public_base_url = Column(String(255))
+    default_relays = Column(Text)
+    instance_nostr_address = Column(String(255))
+    instance_admin_npub = Column(String(128))
+    instance_admin_pubkey = Column(String(128))
+    lightning_address = Column(String(255))
+    donation_message = Column(String(255))
+    enable_payments = Column(Boolean, default=False)
+    enable_public_essays_feed = Column(Boolean, default=True)
+    enable_registrationless_readonly = Column(Boolean, default=True)
+    max_feed_items = Column(Integer, default=15)
+    session_default_minutes = Column(Integer, default=60)
+    theme_accent = Column(String(16))
+    updated_at = Column(
+        DateTime,
+        default=lambda: dt.datetime.now(dt.timezone.utc),
+        onupdate=lambda: dt.datetime.now(dt.timezone.utc),
+    )
+    updated_by_pubkey = Column(String(128))

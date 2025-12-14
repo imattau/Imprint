@@ -1,10 +1,11 @@
 {% extends 'base.html' %}
-{% block title %}Imprint · Home{% endblock %}
+{% set instance_settings = request.state.instance_settings %}
+{% block title %}{{ instance_settings.site_name if instance_settings else 'Imprint' }} · Home{% endblock %}
 {% block content %}
 <section class="hero stack">
     <p class="eyebrow">Recently published</p>
-    <h1>Fresh essays from the network</h1>
-    <p class="lede">A calm feed of the newest published versions observed from your relays. Filter by author, tag, or time window.</p>
+    <h1>{{ instance_settings.site_tagline if instance_settings and instance_settings.site_tagline else 'Fresh essays from the network' }}</h1>
+    <p class="lede">{{ instance_settings.site_description if instance_settings and instance_settings.site_description else 'A calm feed of the newest published versions observed from your relays. Filter by author, tag, or time window.' }}</p>
     <div class="row wrap gap">
         <a class="button" href="/essays">Browse all essays</a>
         <p class="muted">Entries are displayed as we first saw them—no ranking or weighting.</p>
