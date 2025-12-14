@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Settings</h1>
+<section>
+    <h2>Key</h2>
+    {% if npub %}
+        <p>npub: <code>{{ npub }}</code></p>
+    {% else %}
+        <p class="warning">No key configured. Set NOSTR_NSEC or NOSTR_SK_HEX in the environment.</p>
+    {% endif %}
+</section>
+<section>
+    <h2>Relays</h2>
+    <form method="post" action="/settings/relays">
+        <input type="url" name="relay_url" placeholder="wss://relay.example.com" required>
+        <button type="submit">Add relay</button>
+    </form>
+    <ul>
+        {% for relay in relays %}
+            <li>
+                {{ relay.url }} ({{ relay.status }})
+                <form method="post" action="/settings/relays/{{ relay.id }}/delete" style="display:inline">
+                    <button type="submit">Remove</button>
+                </form>
+            </li>
+        {% else %}
+            <li>No relays configured.</li>
+        {% endfor %}
+    </ul>
+</section>
+{% endblock %}

@@ -1,0 +1,11 @@
+<ul class="feed">
+    {% for essay in essays %}
+        <li class="card">
+            <div class="meta">{{ essay.identifier }} · v{{ essay.latest_version }} · {{ essay.author_pubkey }}</div>
+            <h3><a href="/essay/{{ essay.identifier }}">{{ essay.title }}</a></h3>
+            {% if essay.summary %}<p>{{ essay.summary }}</p>{% endif %}
+        </li>
+    {% else %}
+        <li>No essays yet.</li>
+    {% endfor %}
+</ul>

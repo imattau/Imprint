@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Recent essays</h1>
+<div class="filters">
+    <form hx-get="/fragments/feed" hx-target="#feed" hx-swap="innerHTML">
+        <label>Author pubkey
+            <input type="text" name="author" placeholder="hex pubkey">
+        </label>
+        <label>Last days
+            <select name="days">
+                <option value="">Any</option>
+                <option value="7">7</option>
+                <option value="30">30</option>
+            </select>
+        </label>
+        <button type="submit">Filter</button>
+    </form>
+</div>
+<div id="feed">
+    {% include 'fragments/feed.html' %}
+</div>
+{% endblock %}
