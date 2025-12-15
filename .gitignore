@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .imprint.db
+*.db
 *.sqlite
 .env
 .poetry-cache
