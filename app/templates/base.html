@@ -13,6 +13,7 @@
     {% endif %}
     <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
     <script src="/static/auth.js" defer></script>
+    <script src="/static/zap.js" defer></script>
 </head>
 <body>
 <header class="site-header">
@@ -21,23 +22,18 @@
             <span class="brand-mark" aria-hidden="true">✦</span>
             <span class="brand-text">{{ instance_settings.site_name if instance_settings else 'Imprint' }}</span>
         </a>
+        {% set path = request.url.path %}
         <nav class="nav" aria-label="Primary navigation">
             {% set session = request.state.session %}
             {% set can_sign = session and session.session_mode != 'readonly' %}
-            <a href="/">Home</a>
-            <a href="/essays">Essays</a>
+            <a href="/" class="{{ 'active' if path == '/' else '' }}">Home</a>
+            <a href="/essays" class="{{ 'active' if path.startswith('/essays') else '' }}">Essays</a>
             {% if can_sign %}
-                <a href="/editor">Editor</a>
+                <a href="/editor" class="{{ 'active' if path.startswith('/editor') else '' }}">Editor</a>
             {% elif session %}
                 <a href="#" class="needs-auth" onclick="event.preventDefault(); window.showAuthModal && window.showAuthModal()">Editor</a>
             {% endif %}
-            {% if session %}
-                <a href="/settings">Settings</a>
-            {% endif %}
             <a href="https://github.com/" target="_blank" rel="noreferrer">GitHub</a>
-            {% if request.state.is_admin %}
-                <a href="/admin">Admin</a>
-            {% endif %}
         </nav>
         <div class="row gap align-center">
             {% if request.state.is_admin %}
@@ -91,5 +87,6 @@
     });
 </script>
 {% endif %}
+<div id="modal-root"></div>
 </body>
 </html>

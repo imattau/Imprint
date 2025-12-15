@@ -32,6 +32,21 @@
             <p>No version available.</p>
         {% endif %}
     </section>
+    {% if version and version.event_id %}
+        <div
+            class="engagement-shell"
+            hx-get="/posts/{{ version.event_id }}/engagement"
+            hx-trigger="load, authChanged from:body"
+            hx-swap="outerHTML"
+        >
+            {% set event_id = version.event_id %}
+            {% set like_count = 0 %}
+            {% set liked_by_me = false %}
+            {% set zap_count = 0 %}
+            {% set total_sats = 0 %}
+            {% include 'partials/engagement_bar.html' %}
+        </div>
+    {% endif %}
     <div class="row wrap gap actions">
         <a class="button" href="/editor?d={{ essay.identifier }}">Revise</a>
         <a class="button ghost" href="/essays">Back to list</a>

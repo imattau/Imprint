@@ -10,6 +10,20 @@ class NostrEventError(Exception):
     pass
 
 
+IMPRINT_TAG = "imprint"
+
+
+def ensure_imprint_tag(topics: Optional[list[str]] = None) -> list[str]:
+    """Guarantee the canonical Imprint tag is present exactly once."""
+    deduped: list[str] = []
+    for topic in topics or []:
+        if topic and topic not in deduped:
+            deduped.append(topic)
+    if IMPRINT_TAG not in deduped:
+        deduped.append(IMPRINT_TAG)
+    return deduped
+
+
 def serialize_event(pubkey: str, created_at: int, kind: int, tags: List[List[str]], content: str) -> str:
     data = [0, pubkey, created_at, kind, tags, content]
     return json.dumps(data, separators=(",", ":"), ensure_ascii=False)
@@ -51,7 +65,7 @@ def build_long_form_event_template(
         tags.append(["summary", summary])
     if supersedes:
         tags.append(["supersedes", supersedes])
-    for topic in topics or []:
+    for topic in ensure_imprint_tag(topics):
         tags.append(["t", topic])
     return {
         "pubkey": pubkey,
@@ -99,7 +113,7 @@ def build_long_form_event(
         tags.append(["summary", summary])
     if supersedes:
         tags.append(["supersedes", supersedes])
-    for topic in topics or []:
+    for topic in ensure_imprint_tag(topics):
         tags.append(["t", topic])
     event = {
         "pubkey": pubkey,

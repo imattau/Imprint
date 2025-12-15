@@ -1,0 +1,14 @@
+{% set path = request.url.path %}
+<div class="sidebar-header">
+    <div class="eyebrow">Admin</div>
+    <div class="brand-text">{{ request.state.instance_settings.site_name if request.state.instance_settings else 'Imprint' }}</div>
+</div>
+<nav class="admin-nav">
+    <a href="/admin/overview" class="{{ 'active' if path.startswith('/admin/overview') else '' }}">Overview</a>
+    <a href="/admin/settings" class="{{ 'active' if path.startswith('/admin/settings') else '' }}">Settings</a>
+    <a href="/admin/backup" class="{{ 'active' if path.startswith('/admin/backup') else '' }}">Backup & Restore</a>
+</nav>
+<form action="/admin/logout" method="post" class="sidebar-footer">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit" class="ghost full">Sign out</button>
+</form>

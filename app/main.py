@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import json
 import logging
 import os
@@ -11,7 +12,6 @@ from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from markupsafe import Markup
 from sqlalchemy import select
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -23,14 +23,24 @@ from app.auth.service import AuthRequired, get_auth_session, require_signing_ses
 from app.auth.schemas import SessionMode
 from app.db import models
 from app.db.session import aengine, get_session
+from app.db.schema_upgrade import ensure_instance_settings_schema
 from app.indexer import run_indexer
-from app.nostr.event import build_long_form_event_template, verify_event, compute_event_id, serialize_event
+from app.nostr.event import (
+    build_long_form_event_template,
+    verify_event,
+    compute_event_id,
+    serialize_event,
+    ensure_imprint_tag,
+)
 from app.nostr.key import NostrKeyError, encode_npub, npub_from_secret
 from app.nostr.signers import SignerError, signer_from_session
 from app.services.essays import EssayService
+from app.services.engagement import engagement_for, toggle_like, add_zap, hydrate_from_relays
+from app.template_utils import register_filters, author_display, tags_list
 
 app = FastAPI(title="Imprint", version="0.1.0")
 templates = Jinja2Templates(directory="app/templates")
+register_filters(templates)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.add_middleware(
     SessionMiddleware,
@@ -38,7 +48,8 @@ app.add_middleware(
     session_cookie=settings.session_cookie_name,
     same_site=settings.session_cookie_same_site,
     max_age=settings.session_cookie_max_age,
-    https_only=settings.session_cookie_https_only,
+    # In local/dev (DEBUG), disable Secure so cookies stick on http://localhost.
+    https_only=settings.session_cookie_https_only and not settings.debug,
 )
 app.include_router(auth_router)
 app.include_router(admin_router)
@@ -47,45 +58,29 @@ logger = logging.getLogger(__name__)
 indexer_task: Optional[asyncio.Task] = None
 
 
-def markdown_filter(text: str | None):
-    return Markup(markdown2.markdown(text or ""))
+def ensure_default_executor() -> None:
+    """Ensure the event loop has a default ThreadPoolExecutor.
 
-
-templates.env.filters["markdown"] = markdown_filter
-
-
-def author_display(pubkey: str | None) -> str:
-    if not pubkey:
-        return "Unknown author"
-    try:
-        npub = encode_npub(pubkey)
-    except Exception:
-        npub = pubkey
-    if len(npub) > 20:
-        return f"{npub[:10]}…{npub[-4:]}"
-    return npub
-
-
-def tags_list(tags: str | None) -> list[str]:
-    if not tags:
-        return []
-    return [tag.strip() for tag in tags.split(",") if tag.strip()]
-
-
-templates.env.filters["author_display"] = author_display
-templates.env.filters["tags_list"] = tags_list
+    Some environments disable lazy creation of the default executor, which causes
+    run_in_executor users (aiosqlite/SQLAlchemy) to hang. Proactively seed one.
+    """
+    loop = asyncio.get_running_loop()
+    if getattr(loop, "_default_executor", None) is None:
+        loop.set_default_executor(ThreadPoolExecutor())
 
 
 @app.middleware("http")
 async def inject_session(request: Request, call_next):
-    session_data = None
-    raw_session = request.scope.get("session") if hasattr(request, "scope") else None
+    # Always resolve the auth session so templates have consistent nav state.
     try:
-        if raw_session is not None:
-            session_data = get_auth_session(request)
+        session_data = get_auth_session(request)
     except Exception:
         session_data = None
     request.state.session = session_data
+    try:
+        raw_session = request.session  # Starlette session dict
+    except Exception:
+        raw_session = {}
     request.state.is_admin = bool(raw_session.get("is_admin")) if isinstance(raw_session, dict) else False
     try:
         async with get_session() as session:
@@ -118,12 +113,15 @@ def relays_for_request(request: Request) -> list[str]:
 
 
 async def init_models():
+    ensure_default_executor()
     async with aengine.begin() as conn:
         await conn.run_sync(models.Base.metadata.create_all)
+    await ensure_instance_settings_schema(aengine)
 
 
 @app.on_event("startup")
 async def startup_event():
+    ensure_default_executor()
     await init_models()
     if os.getenv("PYTEST_CURRENT_TEST") or not settings.enable_indexer:
         return
@@ -168,12 +166,15 @@ async def home(request: Request, author: str | None = None, days: int | None = N
         request.state.session = get_auth_session(request)
     instance_settings = getattr(request.state, "instance_settings", None)
     max_items = instance_settings.max_feed_items if instance_settings else 12
+    imprint_only = bool(getattr(instance_settings, "filter_recently_published_to_imprint_only", False))
     async with get_session() as session:
         service = EssayService(session)
         if instance_settings and not instance_settings.enable_public_essays_feed:
             essays = []
         else:
-            essays = await service.list_latest_published(author=author, tag=tag, days=days, limit=max_items)
+            essays = await service.list_latest_published(
+                author=author, tag=tag, days=days, limit=max_items, imprint_only=imprint_only
+            )
     context = {
         "request": request,
         "essays": essays,
@@ -187,12 +188,15 @@ async def home(request: Request, author: str | None = None, days: int | None = N
 async def recent_fragment(request: Request, author: str | None = None, days: int | None = None, tag: str | None = None):
     instance_settings = getattr(request.state, "instance_settings", None)
     max_items = instance_settings.max_feed_items if instance_settings else 12
+    imprint_only = bool(getattr(instance_settings, "filter_recently_published_to_imprint_only", False))
     async with get_session() as session:
         service = EssayService(session)
         if instance_settings and not instance_settings.enable_public_essays_feed:
             essays = []
         else:
-            essays = await service.list_latest_published(author=author, tag=tag, days=days, limit=max_items)
+            essays = await service.list_latest_published(
+                author=author, tag=tag, days=days, limit=max_items, imprint_only=imprint_only
+            )
     context = {
         "request": request,
         "essays": essays,
@@ -216,14 +220,17 @@ async def essays_page(
     days: int | None = None,
     page: int = 1,
 ):
+    # Ensure session state is visible to the template (nav rendering).
+    request.state.session = get_auth_session(request)
     page = max(page, 1)
     instance_settings = getattr(request.state, "instance_settings", None)
     page_size = instance_settings.max_feed_items if instance_settings else 12
     offset = (page - 1) * page_size
+    imprint_only = bool(getattr(instance_settings, "filter_recently_published_to_imprint_only", False))
     async with get_session() as session:
         service = EssayService(session)
         essays = await service.list_latest_published(
-            author=author, tag=tag, days=days, limit=page_size + 1, offset=offset
+            author=author, tag=tag, days=days, limit=page_size + 1, offset=offset, imprint_only=imprint_only
         )
     has_more, next_page, query_string, base_params = build_pagination_context(
         author, tag, days, page, page_size, len(essays)
@@ -275,17 +282,29 @@ async def essays_fragment(
 
 
 @app.get("/editor", response_class=HTMLResponse)
-async def editor(request: Request, d: str | None = None):
-    require_user(request, require_signing=True)
+async def editor(request: Request, d: str | None = None, draft_id: int | None = None):
+    session_data = require_user(request, require_signing=True)
+    # Ensure the template sees the active session (nav rendering depends on it).
+    request.state.session = session_data
     content = ""
     title = ""
     summary = ""
     tags = ""
-    if d:
+    identifier = d
+    if draft_id:
         async with get_session() as session:
-            result = await session.execute(
-                select(models.Essay).where(models.Essay.identifier == d)
-            )
+            service = EssayService(session)
+            draft = await service.get_draft(draft_id, session_data.pubkey_hex or "")
+            if not draft:
+                raise HTTPException(status_code=404, detail="Draft not found")
+            content = draft.content
+            title = draft.title
+            summary = draft.summary or ""
+            tags = draft.tags or ""
+            identifier = draft.identifier
+    elif d:
+        async with get_session() as session:
+            result = await session.execute(select(models.Essay).where(models.Essay.identifier == d))
             essay = result.scalars().first()
             if essay:
                 latest = await EssayService(session).latest_version(essay)
@@ -294,7 +313,15 @@ async def editor(request: Request, d: str | None = None):
                     title = essay.title
                     summary = latest.summary or ""
                     tags = latest.tags or ""
-    context = {"request": request, "content": content, "title": title, "identifier": d, "summary": summary, "tags": tags}
+    context = {
+        "request": request,
+        "content": content,
+        "title": title,
+        "identifier": identifier,
+        "summary": summary,
+        "tags": tags,
+        "draft_id": draft_id,
+    }
     return templates.TemplateResponse("editor.html", context)
 
 
@@ -314,18 +341,33 @@ async def publish(
     tags: Optional[str] = Form(None),
     action: str = Form("publish"),
     signed_event: Optional[str] = Form(None),
+    draft_id: Optional[int] = Form(None),
 ):
     session_data = require_signing_session(request)
+    # Block publishing for banned users configured by admin.
+    instance_settings = getattr(request.state, "instance_settings", None)
+    if instance_settings and instance_settings.blocked_pubkeys and session_data.npub:
+        blocked = {npub.strip() for npub in instance_settings.blocked_pubkeys.split(",") if npub.strip()}
+        if session_data.npub in blocked:
+            raise HTTPException(status_code=403, detail="Publishing blocked for this user")
     signer = signer_from_session(session_data)
-    parsed_tags = parse_tags_input(tags)
+    parsed_tags = ensure_imprint_tag(parse_tags_input(tags))
 
     async with get_session() as session:
         service = EssayService(session)
         author_pubkey = signer.get_public_key()
 
         if action == "draft":
-            draft = await service.save_draft(identifier, title, content, summary, parsed_tags, author_pubkey=author_pubkey)
-            return RedirectResponse(url=f"/essay/{draft.essay.identifier}", status_code=303)
+            await service.save_draft(
+                identifier,
+                title,
+                content,
+                summary,
+                parse_tags_input(tags),
+                author_pubkey=author_pubkey,
+                draft_id=draft_id,
+            )
+            return RedirectResponse(url="/drafts", status_code=303)
 
         prepared = await service.prepare_publication(identifier, title, summary, author_pubkey)
         essay, version_num, supersedes = prepared
@@ -376,8 +418,134 @@ async def publish(
         return RedirectResponse(url=f"/essay/{version.essay.identifier}", status_code=303)
 
 
+@app.get("/drafts", response_class=HTMLResponse)
+async def drafts_page(request: Request):
+    session_data = require_user(request, allow_readonly=True)
+    request.state.session = session_data
+    async with get_session() as session:
+        service = EssayService(session)
+        drafts = await service.list_drafts(session_data.pubkey_hex or "")
+    context = {
+        "request": request,
+        "drafts": drafts,
+        "is_readonly": session_data.session_mode == SessionMode.readonly,
+    }
+    return templates.TemplateResponse("drafts.html", context)
+
+
+@app.post("/drafts/save")
+async def save_draft(
+    request: Request,
+    title: str = Form(...),
+    content: str = Form(...),
+    summary: Optional[str] = Form(None),
+    identifier: Optional[str] = Form(None),
+    tags: Optional[str] = Form(None),
+    draft_id: Optional[int] = Form(None),
+):
+    session_data = require_signing_session(request)
+    async with get_session() as session:
+        service = EssayService(session)
+        await service.save_draft(
+            identifier,
+            title,
+            content,
+            summary,
+            parse_tags_input(tags),
+            author_pubkey=session_data.pubkey_hex or "",
+            draft_id=draft_id,
+        )
+    return RedirectResponse(url="/drafts", status_code=303)
+
+
+@app.post("/drafts/{draft_id}/delete")
+async def delete_draft(request: Request, draft_id: int):
+    session_data = require_signing_session(request)
+    async with get_session() as session:
+        service = EssayService(session)
+        await service.delete_draft(draft_id, session_data.pubkey_hex or "")
+    return RedirectResponse(url="/drafts", status_code=303)
+
+
+@app.post("/drafts/{draft_id}/publish")
+async def publish_draft(
+    request: Request,
+    draft_id: int,
+    signed_event: Optional[str] = Form(None),
+):
+    session_data = require_signing_session(request)
+    signer = signer_from_session(session_data)
+    async with get_session() as session:
+        service = EssayService(session)
+        draft = await service.get_draft(draft_id, session_data.pubkey_hex or "")
+        if not draft:
+            raise HTTPException(status_code=404, detail="Draft not found")
+        parsed_tags = ensure_imprint_tag(parse_tags_input(draft.tags))
+        prepared = await service.prepare_publication(
+            draft.identifier,
+            draft.title,
+            draft.summary,
+            signer.get_public_key(),
+        )
+        essay, version_num, supersedes = prepared
+        template = build_long_form_event_template(
+            pubkey=signer.get_public_key(),
+            identifier=essay.identifier,
+            title=draft.title,
+            content=draft.content,
+            summary=draft.summary,
+            version=version_num,
+            status="published",
+            supersedes=supersedes,
+            topics=parsed_tags,
+        )
+        if session_data.session_mode == SessionMode.nip07:
+            if not signed_event:
+                raise HTTPException(status_code=400, detail="Signed event required from browser")
+            try:
+                event_payload = json.loads(signed_event)
+            except json.JSONDecodeError as exc:
+                raise HTTPException(status_code=400, detail="Invalid event payload") from exc
+            serialized = serialize_event(
+                template["pubkey"], template["created_at"], template["kind"], template["tags"], template["content"]
+            )
+            expected_id = compute_event_id(serialized)
+            if event_payload.get("id") != expected_id:
+                raise HTTPException(status_code=400, detail="Event does not match submitted content")
+            if not verify_event(event_payload):
+                raise HTTPException(status_code=400, detail="Invalid signature")
+            signed = event_payload
+        else:
+            signed = await signer.sign_event(template)
+
+        version = await service.publish(
+            draft.identifier,
+            draft.title,
+            draft.content,
+            draft.summary,
+            parsed_tags,
+            signed_event=signed,
+            relay_urls=relays_for_request(request),
+            prepared=prepared,
+        )
+        await service.mark_draft_published(draft, version.event_id)
+        return RedirectResponse(url=f"/essay/{version.essay.identifier}", status_code=303)
+
+
+@app.get("/history", response_class=HTMLResponse)
+async def history_page(request: Request):
+    session_data = require_user(request, allow_readonly=True)
+    request.state.session = session_data
+    async with get_session() as session:
+        service = EssayService(session)
+        history = await service.list_history_for_author(session_data.pubkey_hex or "")
+    context = {"request": request, "history": history}
+    return templates.TemplateResponse("history.html", context)
+
+
 @app.get("/essay/{identifier}", response_class=HTMLResponse)
 async def essay_detail(request: Request, identifier: str, version: int | None = None):
+    request.state.session = get_auth_session(request)
     async with get_session() as session:
         result = await session.execute(select(models.Essay).where(models.Essay.identifier == identifier))
         essay = result.scalars().first()
@@ -399,9 +567,43 @@ async def essay_detail(request: Request, identifier: str, version: int | None = 
     return templates.TemplateResponse("essay_detail.html", context)
 
 
+@app.get("/posts/{event_id}/engagement", response_class=HTMLResponse)
+async def engagement_fragment(request: Request, event_id: str):
+    viewer = get_auth_session(request)
+    await hydrate_from_relays(event_id, relays_for_request(request))
+    data = engagement_for(event_id, viewer)
+    context = {"request": request, **data}
+    return templates.TemplateResponse("partials/engagement_bar.html", context)
+
+
+@app.post("/posts/{event_id}/like", response_class=HTMLResponse)
+async def like_post(request: Request, event_id: str):
+    viewer = require_user(request, require_signing=True)
+    async with get_session() as session:
+        service = EssayService(session)
+        version = await service.find_version_by_event_id(event_id)
+        author_pubkey = version.essay.author_pubkey if version and version.essay else ""
+    data = await toggle_like(event_id, author_pubkey, viewer, relays_for_request(request))
+    context = {"request": request, **data}
+    return templates.TemplateResponse("partials/engagement_bar.html", context)
+
+
+@app.post("/posts/{event_id}/zap", response_class=HTMLResponse)
+async def zap_post(request: Request, event_id: str, amount: int = Form(100)):
+    viewer = require_user(request, require_signing=True)
+    async with get_session() as session:
+        service = EssayService(session)
+        version = await service.find_version_by_event_id(event_id)
+        author_pubkey = version.essay.author_pubkey if version and version.essay else ""
+    data = await add_zap(event_id, max(int(amount or 0), 0), author_pubkey, viewer, relays_for_request(request))
+    context = {"request": request, **data}
+    return templates.TemplateResponse("partials/engagement_bar.html", context)
+
+
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
-    require_user(request, allow_readonly=True)
+    session_data = require_user(request, allow_readonly=True)
+    request.state.session = session_data
     async with get_session() as session:
         relays = (await session.execute(select(models.Relay))).scalars().all()
     npub = get_npub()

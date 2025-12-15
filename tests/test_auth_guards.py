@@ -45,7 +45,6 @@ def test_navbar_visibility_changes_with_session():
     client = make_client()
     anon_home = client.get("/").text
     assert 'href="/editor"' not in anon_home
-    assert 'href="/settings"' not in anon_home
 
     client.post(
         "/auth/login/nip07",
@@ -54,7 +53,8 @@ def test_navbar_visibility_changes_with_session():
     )
     authed_home = client.get("/").text
     assert 'href="/editor"' in authed_home
-    assert 'href="/settings"' in authed_home
+    status = client.get("/auth/status").text
+    assert 'href="/settings"' in status
 
 
 def test_local_login_updates_header(monkeypatch):
@@ -83,4 +83,5 @@ def test_readonly_login_updates_header_and_badge():
     home = client.get("/").text
     assert "Sign in" not in home
     assert 'href="/editor"' not in home
-    assert 'href="/settings"' in home or 'href="/settings"' not in home  # settings may be gated, just ensure header updated
+    status = client.get("/auth/status").text
+    assert "Drafts" in status

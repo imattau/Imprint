@@ -3,7 +3,7 @@
   async function ensureModal() {
     let existing = document.getElementById(modalId);
     if (existing) return existing;
-    const resp = await fetch('/auth/modal');
+    const resp = await fetch('/auth/modal', {credentials: 'same-origin'});
     const html = await resp.text();
     const wrapper = document.createElement('div');
     wrapper.innerHTML = html;
@@ -39,14 +39,20 @@
       const resp = await fetch('/auth/login/nip07', {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'HX-Request': 'true'},
+        credentials: 'same-origin',
         body: JSON.stringify({pubkey, duration: '1h'})
       });
       const html = await resp.text();
-      const target = document.querySelector('#auth-status');
-      if (target) {
-        target.outerHTML = html;
+      if (resp.ok) {
+        const target = document.querySelector('#auth-status');
+        if (target) {
+          target.outerHTML = html;
+        }
+        document.body.dispatchEvent(new CustomEvent('authChanged', {bubbles: true}));
+        closeModal();
+      } else {
+        alert('Failed to connect browser signer');
       }
-      closeModal();
     } catch (err) {
       console.error(err);
       alert('Failed to connect browser signer');
@@ -57,4 +63,8 @@
   window.closeAuthModal = closeModal;
   window.connectNip07 = connectNip07;
   document.body.addEventListener('openAuthModal', showModal);
+  document.body.addEventListener('authChanged', () => {
+    // Reload to refresh nav links (editor/settings/admin) after auth changes.
+    window.location.reload();
+  });
 })();

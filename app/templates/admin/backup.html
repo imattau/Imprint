@@ -1,0 +1,45 @@
+{% extends "admin/base.html" %}
+{% block title %}Backup & Restore · {{ request.state.instance_settings.site_name if request.state.instance_settings else 'Admin' }}{% endblock %}
+{% block admin_content %}
+<section class="stack">
+    <p class="eyebrow">Administrator</p>
+    <h1>Backup & Restore</h1>
+    <p class="lede">Export a snapshot of the database and settings, or restore from a prior backup.</p>
+</section>
+
+{% if error %}
+    <div class="alert">{{ error }}</div>
+{% endif %}
+{% if restored %}
+    <div class="alert success">Restore applied. Restart the server to load the new data.</div>
+{% endif %}
+
+<div class="grid two">
+    <section class="card stack">
+        <h2>Create backup</h2>
+        <p class="muted small">Downloads a ZIP containing the SQLite database, settings, and metadata.</p>
+        <form action="/admin/backup/create" method="post">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button type="submit" class="button">Download backup</button>
+        </form>
+    </section>
+
+    <section class="card stack">
+        <h2>Restore</h2>
+        <p class="muted small">Upload a backup ZIP. This will overwrite the current database. Type RESTORE to confirm.</p>
+        <form action="/admin/restore/apply" method="post" enctype="multipart/form-data" class="stack">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <label class="field">
+                <span>Backup archive (.zip)</span>
+                <input type="file" name="archive" accept=".zip" required>
+            </label>
+            <label class="field">
+                <span>Confirmation</span>
+                <input type="text" name="confirm" placeholder="RESTORE" required>
+            </label>
+            <button type="submit" class="button danger">Apply restore</button>
+        </form>
+        <p class="muted small">After restore, restart the server. This action cannot be undone.</p>
+    </section>
+</div>
+{% endblock %}

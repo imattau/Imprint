@@ -100,3 +100,33 @@ async def test_author_and_tag_filtering(session):
     tag_filtered = await service.list_latest_published(tag="writing")
     assert len(tag_filtered) == 1
     assert tag_filtered[0].essay.identifier == "authored"
+
+
+@pytest.mark.asyncio
+async def test_imprint_filtering(session):
+    essay1 = models.Essay(identifier="imprint", title="First", author_pubkey="f" * 64)
+    essay2 = models.Essay(identifier="generic", title="Second", author_pubkey="g" * 64)
+    session.add_all([essay1, essay2])
+    await session.flush()
+
+    version1 = models.EssayVersion(
+        essay_id=essay1.id,
+        version=1,
+        status="published",
+        tags="nostr,imprint",
+        published_at=dt.datetime(2024, 4, 1, tzinfo=dt.timezone.utc),
+    )
+    version2 = models.EssayVersion(
+        essay_id=essay2.id,
+        version=1,
+        status="published",
+        tags="nostr",
+        published_at=dt.datetime(2024, 4, 2, tzinfo=dt.timezone.utc),
+    )
+    session.add_all([version1, version2])
+    await session.commit()
+
+    service = EssayService(session)
+    filtered = await service.list_latest_published(imprint_only=True)
+    assert len(filtered) == 1
+    assert filtered[0].essay.identifier == "imprint"

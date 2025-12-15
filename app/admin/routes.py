@@ -3,8 +3,8 @@ from __future__ import annotations
 import secrets
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Form, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Form, Request, UploadFile, File, status
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,12 +20,15 @@ from app.admin.service import (
     validate_admin_csrf,
     InstanceSettingsService,
 )
+from app.admin.backup import create_backup_archive, validate_backup_archive, apply_restore_from_archive
 from app.auth.service import get_auth_session
 from app.db.session import get_session
+from app.template_utils import register_filters
 
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 templates = Jinja2Templates(directory="app/templates")
+register_filters(templates)
 
 
 async def db_session():
@@ -43,24 +46,16 @@ async def admin_home(request: Request, session: AsyncSession = Depends(db_sessio
     if not request.session.get("is_admin"):
         context = {
             "request": request,
-            "is_admin": False,
             "allowlisted": has_allowlisted_pubkey(request),
             "has_token": bool(admin_token()),
             "error": None,
             "settings": settings,
             "csrf": csrf,
         }
-        return templates.TemplateResponse("admin/index.html", context)
+        return templates.TemplateResponse("admin/login.html", context)
 
     auth_session = get_auth_session(request)
-    context = {
-        "request": request,
-        "is_admin": True,
-        "settings": settings,
-        "csrf": csrf,
-        "auth_session": auth_session,
-    }
-    return templates.TemplateResponse("admin/index.html", context)
+    return RedirectResponse(url="/admin/overview", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/login")
@@ -75,18 +70,17 @@ async def admin_login(
     allowlisted = has_allowlisted_pubkey(request)
     if (token_env and admin_token_input.strip() and secrets.compare_digest(admin_token_input.strip(), token_env)) or allowlisted:
         issue_admin_session(request)
-        return RedirectResponse(url="/admin", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(url="/admin/overview", status_code=status.HTTP_303_SEE_OTHER)
 
     settings_error_context = {
         "request": request,
-        "is_admin": False,
         "allowlisted": allowlisted,
         "has_token": bool(token_env),
         "error": "Invalid admin token" if admin_token_input else "Admin credentials required",
         "settings": await InstanceSettingsService(session).get_settings(),
         "csrf": ensure_admin_csrf(request),
     }
-    return templates.TemplateResponse("admin/index.html", settings_error_context, status_code=status.HTTP_401_UNAUTHORIZED)
+    return templates.TemplateResponse("admin/login.html", settings_error_context, status_code=status.HTTP_401_UNAUTHORIZED)
 
 
 @router.post("/logout")
@@ -94,6 +88,20 @@ async def admin_logout(request: Request, csrf: str = Form("")):
     validate_admin_csrf(request, csrf)
     clear_admin_session(request)
     return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.get("/overview", response_class=HTMLResponse)
+async def admin_overview(request: Request, session: AsyncSession = Depends(db_session)):
+    require_admin(request)
+    settings = await InstanceSettingsService(session).get_settings()
+    auth_session = get_auth_session(request)
+    context = {
+        "request": request,
+        "settings": settings,
+        "auth_session": auth_session,
+        "csrf": ensure_admin_csrf(request),
+    }
+    return templates.TemplateResponse("admin/overview.html", context)
 
 
 @router.get("/settings", response_class=HTMLResponse)
@@ -128,6 +136,9 @@ async def save_settings(
     max_feed_items: Optional[str] = Form(None),
     session_default_minutes: Optional[str] = Form(None),
     theme_accent: Optional[str] = Form(None),
+    admin_allowlist: Optional[str] = Form(None),
+    blocked_pubkeys: Optional[str] = Form(None),
+    filter_recently_published_to_imprint_only: Optional[str] = Form(None),
     csrf: str = Form(""),
 ):
     require_admin(request)
@@ -148,6 +159,9 @@ async def save_settings(
         "max_feed_items": max_feed_items,
         "session_default_minutes": session_default_minutes,
         "theme_accent": theme_accent,
+        "admin_allowlist": admin_allowlist,
+        "blocked_pubkeys": blocked_pubkeys,
+        "filter_recently_published_to_imprint_only": filter_recently_published_to_imprint_only,
     }
     try:
         payload = coerce_payload(form_data)
@@ -181,3 +195,70 @@ async def admin_health(request: Request):
     require_admin(request)
     return {"status": "ok", "is_admin": True}
 
+
+@router.get("/backup", response_class=HTMLResponse)
+async def backup_page(request: Request, session: AsyncSession = Depends(db_session)):
+    require_admin(request)
+    settings_service = InstanceSettingsService(session)
+    settings = await settings_service.get_settings()
+    context = {
+        "request": request,
+        "settings": settings,
+        "csrf": ensure_admin_csrf(request),
+    }
+    return templates.TemplateResponse("admin/backup.html", context)
+
+
+@router.post("/backup/create")
+async def backup_create(request: Request, session: AsyncSession = Depends(db_session), csrf: str = Form("")):
+    require_admin(request)
+    validate_admin_csrf(request, csrf)
+    buffer, name = await create_backup_archive(session)
+    headers = {"Content-Disposition": f'attachment; filename="{name}"'}
+    return StreamingResponse(buffer, media_type="application/zip", headers=headers)
+
+
+@router.post("/restore/apply")
+async def restore_apply(
+    request: Request,
+    session: AsyncSession = Depends(db_session),
+    archive: UploadFile = File(...),
+    confirm: str = Form(""),
+    csrf: str = Form(""),
+):
+    require_admin(request)
+    validate_admin_csrf(request, csrf)
+    if confirm.strip().upper() != "RESTORE":
+        return templates.TemplateResponse(
+            "admin/backup.html",
+            {
+                "request": request,
+                "settings": await InstanceSettingsService(session).get_settings(),
+                "csrf": ensure_admin_csrf(request),
+                "error": "Type RESTORE to confirm.",
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    content = await archive.read()
+    valid, error = validate_backup_archive(content)
+    if not valid:
+        return templates.TemplateResponse(
+            "admin/backup.html",
+            {
+                "request": request,
+                "settings": await InstanceSettingsService(session).get_settings(),
+                "csrf": ensure_admin_csrf(request),
+                "error": error or "Invalid archive",
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    await apply_restore_from_archive(content)
+    return templates.TemplateResponse(
+        "admin/backup.html",
+        {
+            "request": request,
+            "settings": await InstanceSettingsService(session).get_settings(),
+            "csrf": ensure_admin_csrf(request),
+            "restored": True,
+        },
+    )

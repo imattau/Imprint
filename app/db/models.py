@@ -5,6 +5,25 @@ from sqlalchemy.orm import declarative_base, relationship
 Base = declarative_base()
 
 
+class Draft(Base):
+    __tablename__ = "drafts"
+
+    id = Column(Integer, primary_key=True)
+    author_pubkey = Column(String(128), index=True, nullable=False)
+    title = Column(String(255), nullable=False)
+    content = Column(Text, nullable=False)
+    summary = Column(Text)
+    identifier = Column(String(255))
+    tags = Column(Text)
+    published_event_id = Column(String(128))
+    created_at = Column(DateTime, default=lambda: dt.datetime.now(dt.timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: dt.datetime.now(dt.timezone.utc),
+        onupdate=lambda: dt.datetime.now(dt.timezone.utc),
+    )
+
+
 class Essay(Base):
     __tablename__ = "essays"
     id = Column(Integer, primary_key=True)
@@ -76,6 +95,9 @@ class InstanceSettings(Base):
     max_feed_items = Column(Integer, default=15)
     session_default_minutes = Column(Integer, default=60)
     theme_accent = Column(String(16))
+    filter_recently_published_to_imprint_only = Column(Boolean, default=False)
+    admin_allowlist = Column(Text)
+    blocked_pubkeys = Column(Text)
     updated_at = Column(
         DateTime,
         default=lambda: dt.datetime.now(dt.timezone.utc),

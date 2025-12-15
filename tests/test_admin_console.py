@@ -78,6 +78,33 @@ def test_admin_allowlist_grants_access(client, monkeypatch):
     assert "Admin console" in resp.text
 
 
+def test_admin_allowlist_from_settings(client, monkeypatch):
+    # Login as admin via token to set allowlist
+    monkeypatch.setenv("ADMIN_TOKEN", "secret-token")
+    resp = client.get("/admin")
+    csrf = _extract_csrf(resp.text)
+    client.post("/admin/login", data={"admin_token_input": "secret-token", "csrf": csrf})
+    settings_page = client.get("/admin/settings")
+    form_csrf = _extract_csrf(settings_page.text)
+    allow_npub = encode_npub("2" * 64)
+    client.post(
+        "/admin/settings",
+        data={
+            "site_name": "Imprint Test",
+            "admin_allowlist": allow_npub,
+            "csrf": form_csrf,
+        },
+    )
+    # logout admin session
+    admin_logout_csrf = _extract_csrf(client.get("/admin").text)
+    client.post("/admin/logout", data={"csrf": admin_logout_csrf})
+    # Sign in as allowlisted user and verify access
+    client.post("/auth/login/readonly", data={"npub": allow_npub, "duration": "1h"}, follow_redirects=True)
+    resp = client.get("/admin", allow_redirects=True)
+    assert resp.status_code == 200
+    assert "Admin console" in resp.text
+
+
 def test_settings_persist_and_reflect_in_templates(client, monkeypatch):
     monkeypatch.setenv("ADMIN_TOKEN", "secret-token")
     csrf = _extract_csrf(client.get("/admin").text)

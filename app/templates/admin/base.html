@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="admin-layout">
+    <aside class="admin-sidebar">
+        {% include "admin/partials/sidebar.html" %}
+    </aside>
+    <section class="admin-main stack">
+        {% block admin_content %}{% endblock %}
+    </section>
+</div>
+{% endblock %}

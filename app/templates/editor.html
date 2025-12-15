@@ -9,6 +9,9 @@
 <div class="editor-layout">
     <form method="post" action="/publish" class="card stack editor-form">
         <input type="hidden" name="identifier" value="{{ identifier or '' }}">
+        {% if draft_id %}
+            <input type="hidden" name="draft_id" value="{{ draft_id }}">
+        {% endif %}
         <div class="field">
             <label for="title">Title</label>
             <input id="title" type="text" name="title" value="{{ title }}" required>
@@ -27,7 +30,7 @@
         </div>
         <div class="status-message neutral" role="status">Use <strong>Save draft</strong> to keep changes locally. <strong>Publish</strong> sends the signed event to configured relays.</div>
         <div class="row wrap gap actions">
-            <button type="submit" name="action" value="draft" class="button ghost">Save draft</button>
+            <button type="submit" name="action" value="draft" class="button ghost" formaction="/drafts/save">Save draft</button>
             <button type="submit" name="action" value="publish" class="button">Publish</button>
         </div>
     </form>

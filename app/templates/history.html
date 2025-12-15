@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}Post history · Imprint{% endblock %}
+{% block content %}
+<section class="stack">
+    <p class="eyebrow">Your posts</p>
+    <h1>Post history</h1>
+    <p class="lede">Recently published posts from your account.</p>
+</section>
+
+<div class="card stack">
+    {% if history %}
+        <ul class="list">
+            {% for version in history %}
+                <li class="row space-between align-start">
+                    <div class="stack">
+                        <strong>{{ version.essay.title }}</strong>
+                        {% if version.published_at %}
+                            <span class="muted small">Published {{ version.published_at }}</span>
+                        {% endif %}
+                        {% if version.event_id %}
+                            <span class="muted small">Event: {{ version.event_id[:12] }}…</span>
+                        {% endif %}
+                    </div>
+                    <div class="row gap wrap">
+                        <a class="button ghost" href="/essay/{{ version.essay.identifier }}">View</a>
+                        <a class="button ghost" href="/editor?d={{ version.essay.identifier }}">Revise</a>
+                        <button class="button ghost" type="button" onclick="navigator.clipboard && navigator.clipboard.writeText('{{ request.url.scheme }}://{{ request.url.netloc }}/essay/{{ version.essay.identifier }}')">Copy link</button>
+                    </div>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="muted">No posts yet.</p>
+    {% endif %}
+</div>
+{% endblock %}

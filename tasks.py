@@ -75,6 +75,10 @@ def cmd_clean(_args: argparse.Namespace) -> None:
     print(f"Removed {removed} cache directories.")
 
 
+def cmd_admin_token(_args: argparse.Namespace) -> None:
+    run_command(["poetry", "run", "python", "-m", "app.admin.token"])
+
+
 COMMANDS = {
     "install": cmd_install,
     "run": cmd_run,
@@ -83,6 +87,7 @@ COMMANDS = {
     "lint": cmd_lint,
     "db": cmd_db,
     "clean": cmd_clean,
+    "admin-token": cmd_admin_token,
 }
 
 
@@ -101,6 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("lint", help="Run static analysis (Ruff + mypy).")
     subparsers.add_parser("db", help="Initialize the database schema without starting the server.")
     subparsers.add_parser("clean", help="Remove Python and tooling caches.")
+    subparsers.add_parser("admin-token", help="Generate a new ADMIN_TOKEN for the admin console.")
 
     return parser
 

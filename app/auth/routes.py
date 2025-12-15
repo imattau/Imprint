@@ -15,26 +15,35 @@ from app.auth.service import (
     create_readonly_session,
     get_auth_session,
     is_htmx,
+    local_signer_available,
     parse_bunker_uri,
     validate_signed_event_payload,
 )
+from app.template_utils import register_filters
 from app.nostr.event import verify_event
 from app.config import settings
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 templates = Jinja2Templates(directory="app/templates")
+register_filters(templates)
 
 
 @router.get("/modal", response_class=HTMLResponse)
 async def auth_modal(request: Request):
     session = get_auth_session(request)
-    return templates.TemplateResponse("partials/auth_modal.html", {"request": request, "session": session, "settings": settings})
+    context = {
+        "request": request,
+        "session": session,
+        "settings": settings,
+        "local_signer_available": local_signer_available(),
+    }
+    return templates.TemplateResponse("partials/auth_modal.html", context)
 
 
 @router.get("/status", response_class=HTMLResponse)
 async def auth_status(request: Request):
-    session = get_auth_session(request)
+    session = getattr(request.state, "session", None) or get_auth_session(request)
     return templates.TemplateResponse("partials/auth_status.html", {"request": request, "session": session})
 
 
@@ -109,6 +118,12 @@ async def login_nip46(
 
 @router.post("/login/local", response_class=HTMLResponse)
 async def login_local(request: Request, duration: str = Form("1h")):
+    client_host = request.client.host if request.client else ""
+    allowed_hosts = {"127.0.0.1", "localhost", "::1", "testserver", "testclient"}
+    if client_host not in allowed_hosts:
+        raise HTTPException(status_code=403, detail="Local signer available only from localhost")
+    if not local_signer_available():
+        raise HTTPException(status_code=400, detail="Local signer unavailable")
     instance_settings = getattr(request.state, "instance_settings", None)
     default_minutes = instance_settings.session_default_minutes if instance_settings else 60
     create_local_session(request, duration, default_minutes=default_minutes)

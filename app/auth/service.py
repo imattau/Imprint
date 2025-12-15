@@ -138,7 +138,7 @@ def parse_bunker_uri(uri: str) -> dict[str, str]:
 
 def create_readonly_session(request: Request, npub: str, duration: str | None, default_minutes: int = 60) -> SessionData:
     try:
-        pubkey_hex = decode_nip19(npub)
+        pubkey_hex = decode_nip19(npub.strip().lower())
     except NostrKeyError as exc:
         raise HTTPException(status_code=400, detail="Invalid npub") from exc
     session = create_session_from_pubkey(pubkey_hex, SessionMode.readonly, duration, default_minutes)
@@ -182,6 +182,18 @@ def create_local_session(request: Request, duration: str | None, default_minutes
     session = create_session_from_pubkey(pubkey_hex, SessionMode.local, duration, default_minutes)
     set_session(request, session)
     return session
+
+
+def local_signer_available() -> bool:
+    """Return True if a usable local signer key is configured."""
+
+    if not settings.nostr_secret:
+        return False
+    try:
+        load_private_key(settings.nostr_secret)
+        return True
+    except NostrKeyError:
+        return False
 
 
 def validate_signed_event_payload(event: Dict[str, Any], expected_pubkey: str) -> None:

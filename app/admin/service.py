@@ -14,7 +14,7 @@ from app.admin.schemas import InstanceSettingsPayload
 from app.auth.service import get_auth_session
 from app.config import settings as app_settings
 from app.db import models
-from app.nostr.key import NostrKeyError, decode_nip19
+from app.nostr.key import NostrKeyError, decode_nip19, encode_npub
 
 logger = logging.getLogger(__name__)
 
@@ -25,15 +25,21 @@ def admin_token() -> Optional[str]:
 
 
 def admin_allowlist() -> set[str]:
-    raw = os.getenv("ADMIN_NPUBS", "")
-    return {npub.strip() for npub in raw.split(",") if npub.strip()}
+    # From environment and static settings
+    env_list = {npub.strip() for npub in os.getenv("ADMIN_NPUBS", "").split(",") if npub.strip()}
+    configured = set(app_settings.admin_npubs or [])
+    return {npub for npub in env_list.union(configured) if npub}
 
 
 def has_allowlisted_pubkey(request: Request) -> bool:
     session = get_auth_session(request)
     if not session or not session.npub:
         return False
-    return session.npub in admin_allowlist()
+    allowlist = set(admin_allowlist())
+    instance_settings = getattr(request.state, "instance_settings", None)
+    if instance_settings and instance_settings.admin_allowlist:
+        allowlist.update({npub.strip() for npub in instance_settings.admin_allowlist.split(",") if npub.strip()})
+    return session.npub in allowlist
 
 
 def issue_admin_session(request: Request) -> None:
@@ -97,11 +103,14 @@ class InstanceSettingsService:
             instance_nostr_address=payload.instance_nostr_address,
             instance_admin_npub=payload.instance_admin_npub,
             instance_admin_pubkey=self._derive_pubkey(payload.instance_admin_npub),
+            admin_allowlist=payload.admin_allowlist,
+            blocked_pubkeys=payload.blocked_pubkeys,
             lightning_address=payload.lightning_address,
             donation_message=payload.donation_message,
             enable_payments=payload.enable_payments,
             enable_public_essays_feed=payload.enable_public_essays_feed,
             enable_registrationless_readonly=payload.enable_registrationless_readonly,
+            filter_recently_published_to_imprint_only=payload.filter_recently_published_to_imprint_only,
             max_feed_items=payload.max_feed_items,
             session_default_minutes=payload.session_default_minutes,
             theme_accent=payload.theme_accent,
@@ -122,11 +131,14 @@ class InstanceSettingsService:
         settings.instance_nostr_address = payload.instance_nostr_address
         settings.instance_admin_npub = payload.instance_admin_npub
         settings.instance_admin_pubkey = self._derive_pubkey(payload.instance_admin_npub)
+        settings.admin_allowlist = payload.admin_allowlist
+        settings.blocked_pubkeys = payload.blocked_pubkeys
         settings.lightning_address = payload.lightning_address
         settings.donation_message = payload.donation_message
         settings.enable_payments = payload.enable_payments
         settings.enable_public_essays_feed = payload.enable_public_essays_feed
         settings.enable_registrationless_readonly = payload.enable_registrationless_readonly
+        settings.filter_recently_published_to_imprint_only = payload.filter_recently_published_to_imprint_only
         settings.max_feed_items = payload.max_feed_items
         settings.session_default_minutes = payload.session_default_minutes
         settings.theme_accent = payload.theme_accent
@@ -162,8 +174,11 @@ class InstanceSettingsService:
             "enable_payments": payload.enable_payments,
             "enable_public_essays_feed": payload.enable_public_essays_feed,
             "enable_registrationless_readonly": payload.enable_registrationless_readonly,
+            "filter_recently_published_to_imprint_only": payload.filter_recently_published_to_imprint_only,
             "max_feed_items": payload.max_feed_items,
             "session_default_minutes": payload.session_default_minutes,
+            "admin_allowlist": payload.admin_allowlist,
+            "blocked_pubkeys": payload.blocked_pubkeys,
         }
 
 
@@ -187,7 +202,12 @@ def coerce_payload(data: dict[str, str]) -> InstanceSettingsPayload:
         enable_payments=parse_bool(data.get("enable_payments")),
         enable_public_essays_feed=parse_bool(data.get("enable_public_essays_feed")),
         enable_registrationless_readonly=parse_bool(data.get("enable_registrationless_readonly")),
+        filter_recently_published_to_imprint_only=parse_bool(
+            data.get("filter_recently_published_to_imprint_only")
+        ),
         max_feed_items=max_feed_val if max_feed_val not in (None, "") else 15,
         session_default_minutes=session_minutes_val if session_minutes_val not in (None, "") else 60,
         theme_accent=data.get("theme_accent"),
+        admin_allowlist=data.get("admin_allowlist"),
+        blocked_pubkeys=data.get("blocked_pubkeys"),
     )

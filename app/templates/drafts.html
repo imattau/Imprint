@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block title %}Drafts · Imprint{% endblock %}
+{% block content %}
+<section class="stack">
+    <p class="eyebrow">Your work</p>
+    <h1>Drafts</h1>
+    <p class="lede">Drafts stay on this server until you publish them.</p>
+    <div class="row gap wrap">
+        <a class="button" href="/editor">New draft</a>
+    </div>
+</section>
+
+<div class="card stack">
+    {% if drafts %}
+        <ul class="list">
+            {% for draft in drafts %}
+                <li class="row space-between align-start">
+                    <div class="stack">
+                        <div class="row gap align-center">
+                            <span class="badge subtle">Draft</span>
+                            <strong>{{ draft.title }}</strong>
+                        </div>
+                        {% if draft.updated_at %}
+                            <span class="muted small">Updated {{ draft.updated_at }}</span>
+                        {% endif %}
+                        {% if draft.identifier %}
+                            <span class="muted small">Identifier: {{ draft.identifier }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="row gap wrap">
+                        <a class="button ghost" href="/editor?draft_id={{ draft.id }}">Edit</a>
+                        {% if not is_readonly %}
+                            <form method="post" action="/drafts/{{ draft.id }}/publish">
+                                <button type="submit" class="button">Publish</button>
+                            </form>
+                            <form method="post" action="/drafts/{{ draft.id }}/delete" onsubmit="return confirm('Delete this draft?');">
+                                <button type="submit" class="button ghost">Delete</button>
+                            </form>
+                        {% else %}
+                            <span class="muted small">Read-only session cannot publish</span>
+                        {% endif %}
+                    </div>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="muted">No drafts yet. Start writing from the editor.</p>
+    {% endif %}
+</div>
+{% endblock %}

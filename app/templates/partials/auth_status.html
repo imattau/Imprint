@@ -4,16 +4,25 @@
     <details class="profile-menu">
         <summary>
             <span class="avatar">✦</span>
-            <span class="identity">{{ session.display_name or session.npub or session.pubkey_hex }}</span>
+            {% set full_identity = session.display_name or session.npub or session.pubkey_hex %}
+            <span class="identity">{{ full_identity|short_identity }}</span>
+            {% if session.pubkey_hex %}
+                <span class="sr-only pubkey-prefix">{{ session.pubkey_hex[:12] }}</span>
+            {% endif %}
             <span class="muted small">
                 {{ session.session_mode|title }}
                 {% if session.session_mode == 'readonly' %}
                     <span class="badge subtle">Read-only</span>
                 {% endif %}
             </span>
-            <span class="sr-only pubkey-hex">{{ session.pubkey_hex }}</span>
         </summary>
         <div class="menu">
+            <a class="button ghost full" href="/drafts">Drafts</a>
+            <a class="button ghost full" href="/history">Post history</a>
+            <a class="button ghost full" href="/settings">Settings</a>
+            {% if request.state.is_admin %}
+                <a class="button ghost full" href="/admin">Admin</a>
+            {% endif %}
             <div class="menu-section">
                 <div class="label">Session</div>
                 <div class="value">{{ session.session_mode }}</div>

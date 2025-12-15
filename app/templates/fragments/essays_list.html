@@ -17,6 +17,21 @@
                         {% endfor %}
                     </div>
                 {% endif %}
+                {% if version.event_id %}
+                    <div
+                        class="engagement-shell"
+                        hx-get="/posts/{{ version.event_id }}/engagement"
+                        hx-trigger="load, authChanged from:body"
+                        hx-swap="outerHTML"
+                    >
+                        {% set event_id = version.event_id %}
+                        {% set like_count = 0 %}
+                        {% set liked_by_me = false %}
+                        {% set zap_count = 0 %}
+                        {% set total_sats = 0 %}
+                        {% include 'partials/engagement_bar.html' %}
+                    </div>
+                {% endif %}
             </div>
         </li>
     {% else %}

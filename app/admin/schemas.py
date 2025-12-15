@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.nostr.key import NostrKeyError, decode_nip19
+from app.nostr.key import NostrKeyError, decode_nip19, encode_npub
 
 
 ADDRESS_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+$")
@@ -30,11 +30,14 @@ class InstanceSettingsPayload(BaseModel):
     default_relays: Optional[str] = Field(default=None, max_length=1000)
     instance_nostr_address: Optional[str] = Field(default=None, max_length=255)
     instance_admin_npub: Optional[str] = Field(default=None, max_length=128)
+    admin_allowlist: Optional[str] = Field(default=None, max_length=2000)
+    blocked_pubkeys: Optional[str] = Field(default=None, max_length=2000)
     lightning_address: Optional[str] = Field(default=None, max_length=255)
     donation_message: Optional[str] = Field(default=None, max_length=255)
     enable_payments: bool = False
     enable_public_essays_feed: bool = True
     enable_registrationless_readonly: bool = True
+    filter_recently_published_to_imprint_only: bool = False
     max_feed_items: int = 15
     session_default_minutes: int = 60
     theme_accent: Optional[str] = Field(default=None, max_length=16)
@@ -47,6 +50,8 @@ class InstanceSettingsPayload(BaseModel):
         "default_relays",
         "instance_nostr_address",
         "instance_admin_npub",
+        "admin_allowlist",
+        "blocked_pubkeys",
         "lightning_address",
         "donation_message",
         "theme_accent",
@@ -108,6 +113,43 @@ class InstanceSettingsPayload(BaseModel):
         except NostrKeyError as exc:
             raise ValueError("Invalid npub format") from exc
         return value
+
+    @field_validator("admin_allowlist")
+    @classmethod
+    def normalize_admin_allowlist(cls, value: Optional[str]):
+        if not value:
+            return None
+        entries = []
+        for raw in value.split(","):
+            candidate = raw.strip()
+            if not candidate:
+                continue
+            try:
+                # allow npub or nsec, store as npub
+                hex_key = decode_nip19(candidate)
+                npub = encode_npub(hex_key)
+                entries.append(npub)
+            except NostrKeyError as exc:
+                raise ValueError(f"Invalid admin key: {candidate}") from exc
+        return ",".join(dict.fromkeys(entries)) if entries else None
+
+    @field_validator("blocked_pubkeys")
+    @classmethod
+    def normalize_blocked_pubkeys(cls, value: Optional[str]):
+        if not value:
+            return None
+        entries = []
+        for raw in value.split(","):
+            candidate = raw.strip()
+            if not candidate:
+                continue
+            try:
+                hex_key = decode_nip19(candidate)
+                npub = encode_npub(hex_key)
+                entries.append(npub)
+            except NostrKeyError as exc:
+                raise ValueError(f"Invalid blocked key: {candidate}") from exc
+        return ",".join(dict.fromkeys(entries)) if entries else None
 
     @field_validator("max_feed_items")
     @classmethod

@@ -24,17 +24,27 @@ async def test_next_version_and_publish(session, monkeypatch):
     template2 = build_long_form_event_template(pubkey, essay2.identifier, "Title", "Body update" * 5, "Summary", version_num2, "published", supersedes2, [])
     signed2 = sign_event(sk, template2)
     version2 = await service.publish(version1.essay.identifier, "Title", "Body update" * 5, "Summary", [], signed2, prepared=(essay2, version_num2, supersedes2))
+    assert "imprint" in (version1.tags or "")
+    assert "imprint" in (version2.tags or "")
     assert version2.version == 2
     assert version2.supersedes_event_id == version1.event_id
 
 
 @pytest.mark.asyncio
-async def test_save_draft_increments(session, monkeypatch):
+async def test_save_draft_updates_existing(session, monkeypatch):
     sk = SigningKey.generate(curve=SECP256k1)
     pubkey = derive_pubkey_hex(sk)
     monkeypatch.setattr("app.services.essays.settings", type("S", (), {"relay_urls": [], "nostr_secret": ""}))
 
     service = EssayService(session)
     draft1 = await service.save_draft(None, "Title", "Draft content" * 5, None, author_pubkey=pubkey)
-    draft2 = await service.save_draft(draft1.essay.identifier, "Title", "Draft content" * 5, None, author_pubkey=pubkey)
-    assert draft2.version == draft1.version + 1
+    draft2 = await service.save_draft(
+        draft1.identifier,
+        "Updated",
+        "Updated content",
+        None,
+        author_pubkey=pubkey,
+        draft_id=draft1.id,
+    )
+    assert draft1.id == draft2.id
+    assert draft2.title == "Updated"

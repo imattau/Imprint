@@ -1,0 +1,18 @@
+<div class="engagement-bar row gap align-center" hx-boost="false">
+    <form hx-post="/posts/{{ event_id }}/like" hx-target="closest .engagement-bar" hx-swap="outerHTML">
+        <button type="submit" class="icon-button {% if liked_by_me %}active{% endif %}" aria-label="Like">
+            <span aria-hidden="true">❤️</span>
+            <span class="count">{{ like_count }}</span>
+        </button>
+    </form>
+    <form hx-post="/posts/{{ event_id }}/zap" hx-target="closest .engagement-bar" hx-swap="outerHTML">
+        <input type="hidden" name="amount" value="100">
+        <button type="submit" class="icon-button" aria-label="Zap">
+            <span aria-hidden="true">⚡</span>
+            <span class="count">{{ zap_count }}</span>
+        </button>
+    </form>
+    {% if total_sats %}
+        <span class="muted small">{{ total_sats }} sats</span>
+    {% endif %}
+</div>

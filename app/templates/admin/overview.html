@@ -1,0 +1,47 @@
+{% extends "admin/base.html" %}
+{% block title %}Admin Overview · {{ request.state.instance_settings.site_name if request.state.instance_settings else 'Admin' }}{% endblock %}
+{% block admin_content %}
+<section class="stack">
+    <div class="row align-center gap">
+        <p class="eyebrow">Administrator</p>
+        {% include 'partials/admin_badge.html' %}
+    </div>
+    <h1>Admin console</h1>
+    <p class="lede">Quick status for your Imprint instance.</p>
+</section>
+
+<div class="grid two">
+    <div class="card stack">
+        <div class="row space-between align-center">
+            <div>
+                <p class="eyebrow">Instance</p>
+                <h3>{{ settings.site_name }}</h3>
+                <p class="muted small">{{ settings.site_tagline or 'No tagline set.' }}</p>
+            </div>
+            <a class="button ghost" href="/admin/settings">Edit settings</a>
+        </div>
+        <div class="muted small">
+            Default relays: {{ settings.default_relays or 'Not set' }}<br>
+            Max feed items: {{ settings.max_feed_items }} · Session default: {{ settings.session_default_minutes }} mins
+        </div>
+    </div>
+    <div class="card stack">
+        <p class="eyebrow">Session</p>
+        <h3>Admin session</h3>
+        <p class="muted small">Logged in{% if auth_session and auth_session.npub %} as {{ auth_session.npub }}{% endif %}.</p>
+        <form action="/admin/logout" method="post">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button type="submit" class="ghost">Sign out</button>
+        </form>
+    </div>
+</div>
+
+<div class="card stack">
+    <h3>Quick links</h3>
+    <div class="row gap wrap">
+        <a class="button ghost" href="/admin/settings">Instance settings</a>
+        <a class="button ghost" href="/admin/backup">Backup & restore</a>
+        <a class="button ghost" href="/">View site</a>
+    </div>
+</div>
+{% endblock %}

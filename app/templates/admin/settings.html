@@ -1,18 +1,16 @@
-{% extends "base.html" %}
+{% extends "admin/base.html" %}
 {% block title %}Instance settings · {{ request.state.instance_settings.site_name if request.state.instance_settings else 'Admin' }}{% endblock %}
-{% block content %}
+{% block admin_content %}
 {% set is_mapping = settings is mapping %}
 {% set payments_enabled = (settings.get('enable_payments') in ['on', True, 'true', '1']) if is_mapping else settings.enable_payments %}
 {% set feed_enabled = (settings.get('enable_public_essays_feed') in ['on', True, 'true', '1']) if is_mapping else settings.enable_public_essays_feed %}
 {% set readonly_enabled = (settings.get('enable_registrationless_readonly') in ['on', True, 'true', '1']) if is_mapping else settings.enable_registrationless_readonly %}
+{% set imprint_filter_enabled = (settings.get('filter_recently_published_to_imprint_only') in ['on', True, 'true', '1']) if is_mapping else settings.filter_recently_published_to_imprint_only %}
 
 <section class="stack">
-    <div class="row align-center gap">
-        <p class="eyebrow">Administrator</p>
-        {% include 'partials/admin_badge.html' %}
-    </div>
+    <p class="eyebrow">Administrator</p>
     <h1>Instance settings</h1>
-    <p class="lede">Update the labels, discovery relays, and safety switches for this Imprint deployment.</p>
+    <p class="lede">Update branding, feeds, sessions, and admin controls.</p>
 </section>
 
 <form class="stack" action="/admin/settings" method="post">
@@ -80,6 +78,13 @@
                 </div>
             </label>
         </div>
+        <label class="field row gap align-center">
+            <input type="checkbox" name="filter_recently_published_to_imprint_only" {% if imprint_filter_enabled %}checked{% endif %}>
+            <div class="stack">
+                <span>Filter Recently Published to Imprint-only posts</span>
+                <span class="muted small">ON: show only long-form events tagged “imprint”. OFF: show all long-form posts. New posts from this server are always tagged for interoperability.</span>
+            </div>
+        </label>
     </section>
 
     <section class="card stack">
@@ -111,6 +116,16 @@
                 <input type="text" name="instance_admin_npub" value="{{ settings.get('instance_admin_npub','') if is_mapping else (settings.instance_admin_npub or '') }}">
             </label>
         </div>
+        <label class="field">
+            <span>Admin allowlist (npub or nsec, comma-separated)</span>
+            <textarea name="admin_allowlist" rows="2" placeholder="npub1..., nsec1...">{{ settings.get('admin_allowlist','') if is_mapping else (settings.admin_allowlist or '') }}</textarea>
+            <span class="muted small">Users in this list can sign in with their npub (or nsec converted to npub) to access the console.</span>
+        </label>
+        <label class="field">
+            <span>Blocked npubs (comma-separated)</span>
+            <textarea name="blocked_pubkeys" rows="2" placeholder="npub1..., npub1...">{{ settings.get('blocked_pubkeys','') if is_mapping else (settings.blocked_pubkeys or '') }}</textarea>
+            <span class="muted small">These users cannot publish. Provide npubs (or nsecs, stored normalized).</span>
+        </label>
         <div class="row gap wrap">
             <label class="field grow">
                 <span>Lightning address</span>

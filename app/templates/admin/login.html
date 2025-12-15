@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Admin · {{ request.state.instance_settings.site_name if request.state.instance_settings else 'Admin' }}{% endblock %}
+{% block content %}
+<section class="stack narrow">
+    <p class="eyebrow">Administrator</p>
+    <h1>Admin console</h1>
+    <p class="lede">Sign in with an admin token or an allowlisted npub session.</p>
+    <form class="card stack" action="/admin/login" method="post">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        {% if error %}
+            <div class="alert">{{ error }}</div>
+        {% endif %}
+        {% if has_token %}
+            <label class="field">
+                <span>Admin token</span>
+                <input type="password" name="admin_token_input" placeholder="Enter admin token" autocomplete="current-password">
+                <span class="muted small">Token is compared to ENV <code>ADMIN_TOKEN</code>.</span>
+            </label>
+        {% endif %}
+        {% if allowlisted %}
+            <div class="alert success small">Your npub session is allowlisted. Submit to continue.</div>
+        {% else %}
+            <p class="muted small">Nostr admins: sign in via your npub, then open this page.</p>
+        {% endif %}
+        <div class="row gap wrap">
+            {% if has_token or allowlisted %}
+                <button type="submit" class="button">Continue</button>
+            {% else %}
+                <button type="submit" class="button" disabled>Access unavailable</button>
+            {% endif %}
+            <a class="ghost" href="/">Back to site</a>
+        </div>
+    </form>
+</section>
+{% endblock %}

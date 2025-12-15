@@ -35,7 +35,8 @@ Key variables consumed via `.env` (see `.env.example`):
 - `NOSTR_NSEC` or `NOSTR_SK_HEX`: private key for signing events (do **not** commit real keys). When present, the UI exposes a "Local (server)" signer option.
 - `NOSTR_RELAYS`: comma-separated list of relays.
 - `DATABASE_URL`: defaults to `sqlite+aiosqlite:///./imprint.db`.
-- `SESSION_SECRET`: required for session cookies (defaults to a development value).
+- `SESSION_SECRET`: required for session cookies. Always set a strong, random value (e.g. `openssl rand -hex 32`) in real deployments; the default is insecure and only suitable for local development.
+- `SESSION_COOKIE_NAME`, `SESSION_SAME_SITE`, `SESSION_MAX_AGE`, `SESSION_HTTPS_ONLY`: optional cookie tuning. In production, set `SESSION_HTTPS_ONLY=true` when serving over HTTPS; for local dev keep it `false` so cookies are accepted on `http://localhost`.
 - `NIP46_RELAY`: optional default relay used when bootstrapping Nostr Connect (NIP-46).
 - `APP_HOST` / `APP_PORT`: optional bind settings for development.
 
@@ -49,6 +50,7 @@ All tasks are exposed through both the `Makefile` and `tasks.py` runner:
 - Lint (Ruff + mypy): `make lint`
 - Initialize the database schema (create tables via SQLAlchemy metadata): `make db`
 - Clean caches: `make clean`
+- Generate an admin token: `make admin-token` (or `poetry run python -m app.admin.token`)
 
 ## Authentication & signers
 - A session cookie tracks the active signer. Modes include:
@@ -66,14 +68,17 @@ All tasks are exposed through both the `Makefile` and `tasks.py` runner:
 - Administrators manage instance-wide settings at `/admin`.
 - Configure either or both access gates:
   - `ADMIN_TOKEN`: secret string entered into the admin login form.
-  - `ADMIN_NPUBS`: comma-separated npubs allowed to elevate. A matching signed-in npub automatically gains admin status.
+  - `ADMIN_NPUBS`: comma-separated npubs allowed to elevate. A matching signed-in npub automatically gains admin status. You can also configure an allowlist in the Admin Settings page (comma-separated npub/nsec values are normalized to npub).
+- Generate a new admin token locally with `poetry run python -m app.admin.token` (or `make admin-token`); copy the value into `ADMIN_TOKEN` in your `.env` and restart the server. The login form will accept the token in addition to any allowlisted npubs.
+- Seed an allowlist without using the admin UI by setting `ADMIN_NPUBS=npub1...,npub1...` in `.env`. The Admin Settings page maintains an additional comma-separated allowlist stored in the database (`instance_settings.admin_allowlist`).
 - Admin POST forms use a session-scoped CSRF token; admin state is stored separately from user sessions via `is_admin`.
 - The settings page controls:
   - Branding: `site_name`, `site_tagline`, `site_description`, `public_base_url`, `theme_accent`.
   - Discovery: `default_relays` (fallback for publishing/indexing), `max_feed_items`, `enable_public_essays_feed`.
   - Sessions: `session_default_minutes`, `enable_registrationless_readonly`.
-  - Admin identity & payments: `instance_nostr_address`, `instance_admin_npub`, `lightning_address`, `donation_message`, `enable_payments`.
+  - Admin identity & payments: `instance_nostr_address`, `instance_admin_npub`, `admin_allowlist` (comma-separated npub/nsec), `lightning_address`, `donation_message`, `enable_payments`.
 - Footer and header reflect the saved settings (site name, contact identity, optional Lightning donation line). The homepage hero copies the tagline/description.
+- SQLite instances are auto-upgraded on startup for new `instance_settings` columns (e.g., `admin_allowlist`). No destructive changes are performed; existing databases will have missing columns added when the app starts.
 
 ## Publishing workflow
 1. Visit `/editor` to create a draft. Use **Save draft** to store locally without publishing.
