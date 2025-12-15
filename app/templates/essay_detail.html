@@ -33,12 +33,7 @@
         {% endif %}
     </section>
     {% if version and version.event_id %}
-        <div
-            class="engagement-shell"
-            hx-get="/posts/{{ version.event_id }}/engagement"
-            hx-trigger="load, authChanged from:body"
-            hx-swap="outerHTML"
-        >
+        <div class="engagement-shell" id="engagement-{{ version.event_id }}" data-event-id="{{ version.event_id }}">
             {% set event_id = version.event_id %}
             {% set like_count = 0 %}
             {% set liked_by_me = false %}
@@ -48,7 +43,9 @@
         </div>
     {% endif %}
     <div class="row wrap gap actions">
-        <a class="button" href="/editor?d={{ essay.identifier }}">Revise</a>
+        {% if can_revise %}
+            <a class="button" href="/editor?d={{ essay.identifier }}">Revise</a>
+        {% endif %}
         <a class="button ghost" href="/essays">Back to list</a>
     </div>
     <details class="card history">

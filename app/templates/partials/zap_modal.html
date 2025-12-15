@@ -1,0 +1,59 @@
+<div class="modal visible" id="zap-modal" aria-modal="true" role="dialog">
+    <div class="modal-scrim" onclick="document.getElementById('modal-root').innerHTML=''"></div>
+    <div class="modal-card">
+        <div class="modal-header">
+            <h2>⚡ Send a zap</h2>
+            <button class="ghost" type="button" onclick="document.getElementById('modal-root').innerHTML=''">×</button>
+        </div>
+        <div class="modal-content stack">
+            {% if error %}
+                <div class="alert error">{{ error }}</div>
+            {% endif %}
+            {% if invoice %}
+                <div class="stack">
+                    <div class="eyebrow">Invoice</div>
+                    <code class="break-all">{{ invoice }}</code>
+                    <div class="row gap wrap">
+                        <a class="button" href="lightning:{{ invoice }}" target="_blank" rel="noreferrer">Open wallet</a>
+                        <button class="ghost" type="button" data-copy="{{ invoice }}">Copy</button>
+                    </div>
+                    <p class="muted small">Use any Lightning wallet to pay this invoice. After paying, counts will refresh automatically.</p>
+                </div>
+            {% elif not lightning_address %}
+                <p class="muted">No Lightning address found for this author.</p>
+            {% else %}
+                <form
+                    class="stack"
+                    hx-post="/posts/{{ event_id }}/zap/invoice"
+                    hx-target="#modal-root"
+                    hx-swap="innerHTML"
+                    data-zap-form
+                    data-sign-mode="{{ sign_mode }}"
+                >
+                    <input type="hidden" name="signed_event" value="">
+                    <input type="hidden" name="event_template" value='{{ event_template|tojson }}'>
+                    <label class="field">
+                        <span>Amount (sats)</span>
+                        <input type="number" name="amount" min="1" value="{{ default_amount or 100 }}">
+                    </label>
+                    <div class="row gap wrap">
+                        {% for preset in [100, 500, 1000] %}
+                            <button class="ghost" type="button" data-zap-amount="{{ preset }}">{{ preset }} sats</button>
+                        {% endfor %}
+                    </div>
+                    <label class="field">
+                        <span>Note (optional)</span>
+                        <input type="text" name="comment" placeholder="Say thanks">
+                    </label>
+                    {% if sign_mode == 'nip07' %}
+                        <p class="muted small">We’ll ask your browser signer to sign the zap request before generating an invoice.</p>
+                    {% endif %}
+                    <div class="row gap wrap">
+                        <button type="submit" class="button">Generate invoice</button>
+                        <button class="ghost" type="button" onclick="document.getElementById('modal-root').innerHTML=''">Cancel</button>
+                    </div>
+                </form>
+            {% endif %}
+        </div>
+    </div>
+</div>

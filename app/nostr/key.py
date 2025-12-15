@@ -35,7 +35,9 @@ def decode_nip19(nsec: str) -> str:
 
 def encode_npub(pubkey_hex: str) -> str:
     data = convertbits(bytes.fromhex(pubkey_hex), 8, 5, True)
-    return bech32_encode("npub", data)
+    if data is None:
+        raise NostrKeyError("Failed to encode npub")
+    return bech32_encode("npub", list(data))
 
 
 def load_private_key(env_value: Optional[str] = None) -> SigningKey:

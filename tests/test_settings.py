@@ -1,6 +1,3 @@
-import os
-
-from app.config import settings
 
 
 def test_session_secret_respects_env(monkeypatch):
@@ -10,4 +7,3 @@ def test_session_secret_respects_env(monkeypatch):
 
     reload(cfg)
     assert cfg.settings.session_secret == "super-secret-value"
-

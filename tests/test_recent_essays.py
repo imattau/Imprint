@@ -130,3 +130,57 @@ async def test_imprint_filtering(session):
     filtered = await service.list_latest_published(imprint_only=True)
     assert len(filtered) == 1
     assert filtered[0].essay.identifier == "imprint"
+
+
+@pytest.mark.asyncio
+async def test_days_filtering(session):
+    now = dt.datetime.now(dt.timezone.utc)
+    recent = models.Essay(identifier="recent", title="Recent", author_pubkey="h" * 64)
+    old = models.Essay(identifier="old", title="Old", author_pubkey="i" * 64)
+    session.add_all([recent, old])
+    await session.flush()
+
+    recent_version = models.EssayVersion(
+        essay_id=recent.id, version=1, status="published", published_at=now - dt.timedelta(days=2)
+    )
+    old_version = models.EssayVersion(
+        essay_id=old.id, version=1, status="published", published_at=now - dt.timedelta(days=20)
+    )
+    session.add_all([recent_version, old_version])
+    await session.commit()
+
+    service = EssayService(session)
+    last_week = await service.list_latest_published(days=7)
+    assert [r.essay.identifier for r in last_week] == ["recent"]
+
+    last_month = await service.list_latest_published(days=30)
+    assert set(r.essay.identifier for r in last_month) == {"recent", "old"}
+
+
+@pytest.mark.asyncio
+async def test_tag_filtering_with_multiple_tokens(session):
+    essay = models.Essay(identifier="multi", title="Multi", author_pubkey="j" * 64)
+    other = models.Essay(identifier="other", title="Other", author_pubkey="k" * 64)
+    session.add_all([essay, other])
+    await session.flush()
+
+    version1 = models.EssayVersion(
+        essay_id=essay.id,
+        version=1,
+        status="published",
+        tags="nostr,writing,imprint",
+        published_at=dt.datetime(2024, 4, 10, tzinfo=dt.timezone.utc),
+    )
+    version2 = models.EssayVersion(
+        essay_id=other.id,
+        version=1,
+        status="published",
+        tags="travel",
+        published_at=dt.datetime(2024, 4, 11, tzinfo=dt.timezone.utc),
+    )
+    session.add_all([version1, version2])
+    await session.commit()
+
+    service = EssayService(session)
+    filtered = await service.list_latest_published(tag="nostr writing")
+    assert [r.essay.identifier for r in filtered] == ["multi"]

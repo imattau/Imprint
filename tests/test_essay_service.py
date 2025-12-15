@@ -2,7 +2,6 @@ import pytest
 from ecdsa import SigningKey, SECP256k1
 
 from app.services.essays import EssayService
-from app.db import models
 from app.nostr.key import derive_pubkey_hex
 from app.nostr.event import build_long_form_event_template, sign_event
 

@@ -1,31 +1,41 @@
 import datetime as dt
+import re
 import secrets
 from typing import Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db import models
 from app.nostr.event import ensure_imprint_tag
 from app.nostr.key import NostrKeyError, decode_nip19
-from app.nostr.relay import publish_event
 from app.config import settings
-import os
+from app.nostr.relay_client import relay_client
+# Backwards-compatible alias for tests that monkeypatch publish_event.
+publish_event = relay_client.publish_event
 
 
 class EssayService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    async def find_essay_by_identifier(self, identifier: str) -> models.Essay | None:
+        result = await self.session.execute(select(models.Essay).where(models.Essay.identifier == identifier))
+        return result.scalars().first()
+
+    async def ensure_identifier_available(self, identifier: Optional[str], author_pubkey: str) -> models.Essay | None:
+        if not identifier:
+            return None
+        existing = await self.find_essay_by_identifier(identifier)
+        if existing and existing.author_pubkey != author_pubkey:
+            raise PermissionError("Identifier belongs to another author")
+        return existing
+
     async def get_or_create_essay(
         self, identifier: Optional[str], title: str, author_pubkey: str, summary: Optional[str]
     ) -> models.Essay:
-        if identifier:
-            result = await self.session.execute(select(models.Essay).where(models.Essay.identifier == identifier))
-            essay = result.scalars().first()
-        else:
-            essay = None
+        essay = await self.ensure_identifier_available(identifier, author_pubkey)
         if not essay:
             identifier = identifier or secrets.token_hex(4)
             essay = models.Essay(identifier=identifier, title=title, author_pubkey=author_pubkey, summary=summary)
@@ -64,6 +74,8 @@ class EssayService:
 
         tags_string = ",".join(tags) if tags else None
         now = dt.datetime.now(dt.timezone.utc)
+        if identifier:
+            await self.ensure_identifier_available(identifier, author_pubkey)
         draft: models.Draft | None = None
         if draft_id:
             draft = await self.session.get(models.Draft, draft_id)
@@ -96,16 +108,14 @@ class EssayService:
         query = (
             select(models.Draft)
             .where(models.Draft.author_pubkey == author_pubkey)
+            .where(models.Draft.published_event_id.is_(None))
             .order_by(models.Draft.updated_at.desc())
         )
         result = await self.session.execute(query)
         return result.scalars().all()
 
     async def get_draft(self, draft_id: int, author_pubkey: str) -> models.Draft | None:
-        draft = await self.session.get(models.Draft, draft_id)
-        if draft and draft.author_pubkey != author_pubkey:
-            return None
-        return draft
+        return await self.session.get(models.Draft, draft_id)
 
     async def delete_draft(self, draft_id: int, author_pubkey: str) -> None:
         draft = await self.get_draft(draft_id, author_pubkey)
@@ -115,6 +125,7 @@ class EssayService:
 
     async def mark_draft_published(self, draft: models.Draft, event_id: str) -> None:
         draft.published_event_id = event_id
+        draft.updated_at = dt.datetime.now(dt.timezone.utc)
         await self.session.commit()
 
     async def prepare_publication(
@@ -147,6 +158,9 @@ class EssayService:
         else:
             essay, version_num, supersedes = await self.prepare_publication(identifier, title, summary, pubkey)
 
+        # Ensure essay is attached to this session.
+        essay = await self.session.get(models.Essay, essay.id)
+
         version = models.EssayVersion(
             essay_id=essay.id,
             version=version_num,
@@ -168,12 +182,7 @@ class EssayService:
         await self.session.commit()
 
         target_relays = relay_urls if relay_urls is not None else settings.relay_urls
-        if not os.getenv("PYTEST_CURRENT_TEST"):
-            for relay_url in target_relays:
-                try:
-                    await publish_event(relay_url, signed_event)
-                except Exception:
-                    continue
+        await relay_client.publish_event(signed_event, target_relays)
         await self.session.refresh(version)
         return version
 
@@ -214,11 +223,15 @@ class EssayService:
                 author_hex = None
         if author_hex:
             query = query.where(models.Essay.author_pubkey == author_hex)
-        if days:
+        if days is not None and days > 0:
             cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)
             query = query.where(models.EssayVersion.published_at >= cutoff)
         if tag:
-            query = query.where(models.EssayVersion.tags.ilike(f"%{tag}%"))
+            # Allow comma or whitespace separated tag filters; match any token.
+            tokens = [t for t in re.split("[\\s,]+", tag.lower()) if t]
+            if tokens:
+                conditions = [models.EssayVersion.tags.ilike(f"%{token}%") for token in tokens]
+                query = query.where(or_(*conditions))
         if imprint_only:
             query = query.where(models.EssayVersion.tags.ilike("%imprint%"))
         query = query.order_by(models.EssayVersion.published_at.desc()).offset(offset).limit(limit)
@@ -243,6 +256,8 @@ class EssayService:
         return result.scalars().first()
 
     async def list_history_for_author(self, author_pubkey: str, limit: int = 50):
+        """All published versions for author (not deduped)."""
+
         query = (
             select(models.EssayVersion)
             .join(models.Essay)
@@ -250,6 +265,38 @@ class EssayService:
             .where(models.EssayVersion.status == "published")
             .order_by(models.EssayVersion.published_at.desc().nullslast())
             .limit(limit)
+            .options(selectinload(models.EssayVersion.essay))
+        )
+        result = await self.session.execute(query)
+        return result.scalars().all()
+
+    async def list_latest_history_for_author(self, author_pubkey: str, limit: int = 50):
+        """Latest published version per identifier for author."""
+
+        # Use simple python grouping to avoid dialect-specific SQL issues.
+        versions = await self.list_history_for_author(author_pubkey, limit=limit * 5)
+        latest: dict[str, models.EssayVersion] = {}
+        counts: dict[str, int] = {}
+        for v in versions:
+            ident = v.essay.identifier
+            counts[ident] = counts.get(ident, 0) + 1
+            if ident not in latest or (v.published_at and latest[ident].published_at and v.published_at > latest[ident].published_at):
+                latest[ident] = v
+        # Preserve order by published_at desc.
+        ordered = sorted(latest.values(), key=lambda v: v.published_at or dt.datetime.min, reverse=True)
+        revision_counts = {v.essay.id: counts[v.essay.identifier] for v in ordered}
+        return ordered[:limit], revision_counts
+
+    async def list_revisions_for_identifier(self, author_pubkey: str, identifier: str):
+        """All revisions for an identifier, newest first."""
+
+        query = (
+            select(models.EssayVersion)
+            .join(models.Essay)
+            .where(models.Essay.author_pubkey == author_pubkey)
+            .where(models.Essay.identifier == identifier)
+            .where(models.EssayVersion.status == "published")
+            .order_by(models.EssayVersion.published_at.desc().nullslast(), models.EssayVersion.version.desc())
             .options(selectinload(models.EssayVersion.essay))
         )
         result = await self.session.execute(query)

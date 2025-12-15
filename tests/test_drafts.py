@@ -71,3 +71,29 @@ def test_history_shows_published_post(monkeypatch):
     assert publish_resp.status_code in (302, 303)
     history = client.get("/history").text
     assert "History Post" in history
+
+
+def test_published_draft_disappears_from_list(monkeypatch):
+    client = make_client()
+    monkeypatch.setattr("app.config.settings.nostr_secret", "2" * 64)
+    resp = client.post("/auth/login/local", data={"duration": "1h"}, headers={"HX-Request": "true"})
+    assert resp.status_code == 200
+
+    save_resp = client.post(
+        "/drafts/save",
+        data={"title": "Draft to Publish", "content": "Content", "summary": "", "identifier": "draft-pub"},
+        allow_redirects=False,
+    )
+    assert save_resp.status_code == 303
+
+    draft = asyncio.run(_first_draft())
+    assert draft is not None
+
+    publish_resp = client.post(f"/drafts/{draft.id}/publish", allow_redirects=False)
+    assert publish_resp.status_code in (302, 303)
+
+    page = client.get("/drafts").text
+    assert "Draft to Publish" not in page
+
+    history = client.get("/history").text
+    assert "Draft to Publish" in history

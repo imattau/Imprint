@@ -14,7 +14,7 @@ from app.admin.schemas import InstanceSettingsPayload
 from app.auth.service import get_auth_session
 from app.config import settings as app_settings
 from app.db import models
-from app.nostr.key import NostrKeyError, decode_nip19, encode_npub
+from app.nostr.key import NostrKeyError, decode_nip19
 
 logger = logging.getLogger(__name__)
 

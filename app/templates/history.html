@@ -20,11 +20,17 @@
                         {% if version.event_id %}
                             <span class="muted small">Event: {{ version.event_id[:12] }}…</span>
                         {% endif %}
+                        <span class="muted small">Identifier: {{ version.essay.identifier }}</span>
                     </div>
                     <div class="row gap wrap">
-                        <a class="button ghost" href="/essay/{{ version.essay.identifier }}">View</a>
-                        <a class="button ghost" href="/editor?d={{ version.essay.identifier }}">Revise</a>
-                        <button class="button ghost" type="button" onclick="navigator.clipboard && navigator.clipboard.writeText('{{ request.url.scheme }}://{{ request.url.netloc }}/essay/{{ version.essay.identifier }}')">Copy link</button>
+                        {% set link_id = version.essay.identifier | replace('-', '%2D') %}
+                        <a class="button ghost" href="/essay/{{ link_id }}">View</a>
+                        {% if not is_readonly %}
+                            <a class="button ghost" href="/editor?d={{ link_id }}">Revise</a>
+                        {% endif %}
+                        {% set revs = revision_counts.get(version.essay.id, 1) %}
+                        <a class="button ghost" href="/history/{{ link_id }}/revisions">Revisions ({{ revs }})</a>
+                        <button class="button ghost" type="button" onclick="navigator.clipboard && navigator.clipboard.writeText('{{ request.url.scheme }}://{{ request.url.netloc }}/essay/{{ link_id }}')">Copy link</button>
                     </div>
                 </li>
             {% endfor %}

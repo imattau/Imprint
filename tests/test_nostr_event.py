@@ -1,4 +1,3 @@
-import time
 from ecdsa import SigningKey, SECP256k1
 
 from app.nostr.event import build_long_form_event, verify_event, ensure_imprint_tag, IMPRINT_TAG

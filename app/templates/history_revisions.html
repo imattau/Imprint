@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+{% block title %}Revisions · Imprint{% endblock %}
+{% block content %}
+<section class="stack">
+    <p class="eyebrow">Revisions</p>
+    <h1>Revisions for {{ identifier }}</h1>
+    <div class="row gap wrap">
+        <a class="button ghost" href="/history">Back to history</a>
+        <a class="button ghost" href="/essay/{{ identifier }}">View latest</a>
+    </div>
+</section>
+
+<div class="card stack">
+    {% if revisions %}
+        <ul class="list">
+            {% for rev in revisions %}
+                <li class="row space-between align-start">
+                    <div class="stack">
+                        <strong>{{ rev.essay.title }}</strong>
+                        {% if rev.published_at %}
+                            <span class="muted small">Published {{ rev.published_at }}</span>
+                        {% endif %}
+                        <span class="muted small">Event: {{ rev.event_id[:12] }}…</span>
+                        {% if rev.summary %}
+                            <span class="muted small">{{ rev.summary[:120] }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="row gap wrap">
+                        <a class="button ghost" href="/essay/{{ rev.essay.identifier }}?version={{ rev.version }}">View</a>
+                        {% if not is_readonly %}
+                            <a class="button ghost" href="/editor?d={{ rev.essay.identifier }}">Revise</a>
+                        {% endif %}
+                        {% if not is_readonly and not loop.first %}
+                            <form method="post" action="/history/{{ identifier }}/revisions/{{ rev.event_id }}/revert" onsubmit="return confirm('Publish a new revision matching this version?');">
+                                <button type="submit" class="button">Revert to this</button>
+                            </form>
+                        {% else %}
+                            {% if is_readonly %}<span class="muted small">Read-only</span>{% endif %}
+                        {% endif %}
+                    </div>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="muted">No revisions found.</p>
+    {% endif %}
+</div>
+{% endblock %}

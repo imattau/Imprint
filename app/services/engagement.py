@@ -1,24 +1,54 @@
 from __future__ import annotations
 
-import asyncio
-import json
 import time
 from collections import defaultdict
-from typing import Dict, Optional, Sequence
+from typing import Dict, Iterable, Optional, Sequence
 
-from app.auth.schemas import SessionData, SessionMode
+from app.auth.schemas import SessionData
 from app.nostr.event import verify_event
-from app.nostr.relay import publish_event as relay_publish
+from app.nostr.relay_client import relay_client
 from app.nostr.signers import signer_from_session, SignerError
 
 # In-memory cache primarily for test/dev; relay fetch will augment when available.
 _likes: Dict[str, set[str]] = defaultdict(set)
 _zaps: Dict[str, Dict[str, int]] = defaultdict(lambda: {"count": 0, "sats": 0})
+_engagement_cache: Dict[str, tuple[float, dict[str, dict]]] = {}
+_CACHE_TTL_SECONDS = 20
+_MAX_RELAYS = 5
 
 
 def _should_skip_network() -> bool:
     # Avoid network during tests or when explicitly disabled.
     return bool(__import__("os").getenv("PYTEST_CURRENT_TEST"))
+
+
+def _cache_key(event_ids: Iterable[str], viewer: Optional[SessionData]) -> str:
+    viewer_key = viewer.npub if viewer else "anon"
+    return f"{','.join(sorted(set(event_ids)))}|{viewer_key}"
+
+
+def _get_cached(key: str) -> Optional[dict[str, dict]]:
+    expires_data = _engagement_cache.get(key)
+    if not expires_data:
+        return None
+    expires_at, payload = expires_data
+    if expires_at < time.time():
+        _engagement_cache.pop(key, None)
+        return None
+    return payload
+
+
+def _set_cached(key: str, payload: dict[str, dict]) -> None:
+    _engagement_cache[key] = (time.time() + _CACHE_TTL_SECONDS, payload)
+
+
+def _invalidate_cache(event_id: Optional[str] = None) -> None:
+    if event_id is None:
+        _engagement_cache.clear()
+        return
+    for key in list(_engagement_cache.keys()):
+        if event_id in key.split("|", 1)[0].split(","):
+            _engagement_cache.pop(key, None)
 
 
 def engagement_for(event_id: str, viewer: Optional[SessionData]) -> dict:
@@ -54,7 +84,7 @@ async def publish_reaction(event_id: str, author_pubkey: str, session: SessionDa
         return
     if _should_skip_network():
         return
-    await asyncio.gather(*(relay_publish(relay, signed) for relay in relays))
+    await relay_client.publish_event(signed, relays)
 
 
 async def publish_zap_request(event_id: str, author_pubkey: str, session: SessionData, relays: Sequence[str]) -> None:
@@ -77,7 +107,7 @@ async def publish_zap_request(event_id: str, author_pubkey: str, session: Sessio
         return
     if _should_skip_network():
         return
-    await asyncio.gather(*(relay_publish(relay, signed) for relay in relays))
+    await relay_client.publish_event(signed, relays)
 
 
 async def toggle_like(event_id: str, author_pubkey: str, viewer: SessionData, relays: Sequence[str]) -> dict:
@@ -86,52 +116,73 @@ async def toggle_like(event_id: str, author_pubkey: str, viewer: SessionData, re
     else:
         _likes[event_id].add(viewer.npub)
         await publish_reaction(event_id, author_pubkey, viewer, relays)
+    _invalidate_cache(event_id)
     return engagement_for(event_id, viewer)
 
 
 async def add_zap(event_id: str, sats: int, author_pubkey: str, viewer: SessionData, relays: Sequence[str]) -> dict:
-    _zaps[event_id]["count"] += 1
-    _zaps[event_id]["sats"] += max(sats, 0)
+    # Keep zap counts authoritative from receipts; only publish the request.
     await publish_zap_request(event_id, author_pubkey, viewer, relays)
+    _invalidate_cache(event_id)
     return engagement_for(event_id, viewer)
 
 
-async def hydrate_from_relays(event_id: str, relays: Sequence[str]) -> None:
-    """Fetch reactions and zap receipts for an event and prime caches. Best-effort."""
+async def hydrate_from_relays(event_ids: Sequence[str], relays: Sequence[str]) -> None:
+    """Fetch reactions and zap receipts for events and prime caches. Best-effort."""
 
-    if _should_skip_network():
+    ids = list(dict.fromkeys(event_ids))
+    if not ids or _should_skip_network():
         return
-    import websockets  # lazy import to avoid dependency when unused
 
-    filters = {"kinds": [7, 9735], "#e": [event_id]}
-    for relay in relays:
-        try:
-            async with websockets.connect(relay) as ws:
-                sub_id = f"engage-{event_id[:6]}"
-                await ws.send(json.dumps(["REQ", sub_id, filters]))
-                async for raw in ws:
-                    msg = json.loads(raw)
-                    if msg[0] == "EOSE":
-                        break
-                    if msg[0] != "EVENT" or len(msg) < 3:
-                        continue
-                    event = msg[2]
-                    if not verify_event(event):
-                        continue
-                    kind = event.get("kind")
-                    tags = event.get("tags") or []
-                    if kind == 7:
-                        _likes[event_id].add(event.get("pubkey", ""))
-                    elif kind == 9735:
-                        _zaps[event_id]["count"] += 1
-                        amount = 0
-                        for tag in tags:
-                            if tag and tag[0] == "amount" and len(tag) > 1:
-                                try:
-                                    amount = int(tag[1]) // 1000  # msats to sats
-                                except ValueError:
-                                    amount = 0
-                                break
-                        _zaps[event_id]["sats"] += max(amount, 0)
-        except Exception:
+    existing_likes = {eid: set(_likes[eid]) for eid in ids}
+    # Reset counters so repeated hydrations don't double count; merge optimistic likes back after fetch.
+    for eid in ids:
+        _likes[eid] = set()
+        _zaps[eid] = {"count": 0, "sats": 0}
+
+    filters = [{"kinds": [7, 9735], "#e": ids}]
+    trimmed_relays = list(dict.fromkeys(relays))[:_MAX_RELAYS]
+    events = await relay_client.fetch_events(filters, trimmed_relays)
+    for event in events:
+        if not verify_event(event):
             continue
+        kind = event.get("kind")
+        tags = event.get("tags") or []
+        target_ids = []
+        for tag in tags:
+            if tag and tag[0] == "e" and len(tag) > 1:
+                target_ids.append(tag[1])
+        # If no explicit e tag, fall back to the requested filters.
+        target_ids = target_ids or ids
+        for eid in target_ids:
+            if eid not in ids:
+                continue
+            if kind == 7:
+                _likes[eid].add(event.get("pubkey", ""))
+            elif kind == 9735:
+                _zaps[eid]["count"] += 1
+                amount = 0
+                for tag in tags:
+                    if tag and tag[0] == "amount" and len(tag) > 1:
+                        try:
+                            amount = int(tag[1]) // 1000  # msats to sats
+                        except ValueError:
+                            amount = 0
+                        break
+                _zaps[eid]["sats"] += max(amount, 0)
+
+    for eid in ids:
+        _likes[eid].update(existing_likes.get(eid, set()))
+
+
+async def engagements_for(event_ids: Sequence[str], viewer: Optional[SessionData], relays: Sequence[str]) -> dict[str, dict]:
+    ids = [eid for eid in dict.fromkeys(event_ids) if eid]
+    key = _cache_key(ids, viewer)
+    cached = _get_cached(key)
+    if cached is not None:
+        return cached
+
+    await hydrate_from_relays(ids, relays)
+    payload = {eid: engagement_for(eid, viewer) for eid in ids}
+    _set_cached(key, payload)
+    return payload

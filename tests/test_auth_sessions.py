@@ -1,7 +1,6 @@
 import json
 import asyncio
 
-import pytest
 from ecdsa import SigningKey, SECP256k1
 from fastapi.testclient import TestClient
 

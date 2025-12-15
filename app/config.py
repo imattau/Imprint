@@ -26,6 +26,7 @@ class Settings(BaseModel):
     session_cookie_same_site: str = get_env("SESSION_SAME_SITE") or "lax"
     session_cookie_max_age: int = int(get_env("SESSION_MAX_AGE") or 60 * 60 * 24)
     session_cookie_https_only: bool = (get_env("SESSION_HTTPS_ONLY") or "").lower() in {"1", "true", "yes", "on"}
+    lightning_address: str | None = get_env("LIGHTNING_ADDRESS")
 
 
 try:

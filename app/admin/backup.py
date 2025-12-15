@@ -2,7 +2,6 @@ import datetime as dt
 import io
 import json
 import os
-import shutil
 import sqlite3
 import tempfile
 import zipfile

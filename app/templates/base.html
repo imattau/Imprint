@@ -14,6 +14,8 @@
     <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
     <script src="/static/auth.js" defer></script>
     <script src="/static/zap.js" defer></script>
+    <script src="/static/engagement_batch.js" defer></script>
+    {% block extra_head %}{% endblock %}
 </head>
 <body>
 <header class="site-header">
@@ -87,6 +89,7 @@
     });
 </script>
 {% endif %}
+{% block extra_scripts %}{% endblock %}
 <div id="modal-root"></div>
 </body>
 </html>

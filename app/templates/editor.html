@@ -1,5 +1,8 @@
 {% extends 'base.html' %}
 {% block title %}Imprint · Editor{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="/static/vendor/easymde/easymde.min.css">
+{% endblock %}
 {% block content %}
 <section class="stack">
     <p class="eyebrow">Editor</p>
@@ -7,7 +10,7 @@
     <p class="lede">Write in Markdown on the left and watch the preview update. Save a local draft or publish to relays.</p>
 </section>
 <div class="editor-layout">
-    <form method="post" action="/publish" class="card stack editor-form">
+    <form method="post" action="/publish" class="card stack editor-form" data-default-mode="{{ editor_mode|default('') }}">
         <input type="hidden" name="identifier" value="{{ identifier or '' }}">
         {% if draft_id %}
             <input type="hidden" name="draft_id" value="{{ draft_id }}">
@@ -25,7 +28,27 @@
             <input id="tags" type="text" name="tags" value="{{ tags or '' }}" placeholder="nostr, writing, tech">
         </div>
         <div class="field">
-            <label for="content">Content (Markdown)</label>
+            <div class="row space-between align-center wrap editor-header">
+                <div class="row gap align-center">
+                    <label for="content">Content</label>
+                    <span class="muted small">Markdown or visual</span>
+                </div>
+                <div class="row gap wrap editor-toolbar">
+                    <div class="mode-toggle" role="group" aria-label="Editor mode">
+                        <button type="button" class="mode-button active" data-editor-mode="markdown" aria-pressed="true">Markdown</button>
+                        <button type="button" class="mode-button" data-editor-mode="visual" aria-pressed="false">Visual</button>
+                    </div>
+                    <div class="toolbar-actions row gap">
+                        <button type="button" id="toggle-preview" class="icon-button" aria-pressed="false" aria-label="Toggle preview" title="Toggle preview" disabled>
+                            <span class="icon" aria-hidden="true">👁</span>
+                            <span class="label">Preview</span>
+                        </button>
+                        <button type="button" id="toggle-expand" class="icon-button" aria-pressed="false" aria-label="Expand editor" title="Expand editor">
+                            <span class="icon" aria-hidden="true">⤢</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
             <textarea id="content" name="content" rows="12" hx-post="/preview" hx-trigger="keyup changed delay:300ms" hx-target="#preview" hx-swap="innerHTML">{{ content }}</textarea>
         </div>
         <div class="status-message neutral" role="status">Use <strong>Save draft</strong> to keep changes locally. <strong>Publish</strong> sends the signed event to configured relays.</div>
@@ -39,4 +62,8 @@
         <div id="preview" class="prose" aria-live="polite"></div>
     </details>
 </div>
+{% endblock %}
+{% block extra_scripts %}
+<script src="/static/vendor/easymde/easymde.min.js" defer></script>
+<script src="/static/editor.js" defer></script>
 {% endblock %}

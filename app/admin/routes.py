@@ -54,7 +54,7 @@ async def admin_home(request: Request, session: AsyncSession = Depends(db_sessio
         }
         return templates.TemplateResponse("admin/login.html", context)
 
-    auth_session = get_auth_session(request)
+    get_auth_session(request)
     return RedirectResponse(url="/admin/overview", status_code=status.HTTP_303_SEE_OTHER)
 
 

@@ -1,17 +1,33 @@
-<div class="engagement-bar row gap align-center" hx-boost="false">
-    <form hx-post="/posts/{{ event_id }}/like" hx-target="closest .engagement-bar" hx-swap="outerHTML">
-        <button type="submit" class="icon-button {% if liked_by_me %}active{% endif %}" aria-label="Like">
-            <span aria-hidden="true">❤️</span>
-            <span class="count">{{ like_count }}</span>
-        </button>
-    </form>
-    <form hx-post="/posts/{{ event_id }}/zap" hx-target="closest .engagement-bar" hx-swap="outerHTML">
-        <input type="hidden" name="amount" value="100">
-        <button type="submit" class="icon-button" aria-label="Zap">
+{% set interactive = engagement_interactive if engagement_interactive is defined else True %}
+<div class="engagement-bar row gap align-center" {% if interactive %}hx-boost="false"{% endif %}>
+    {% if interactive %}
+        <form hx-post="/posts/{{ event_id }}/like" hx-target="closest .engagement-bar" hx-swap="outerHTML">
+            <button type="submit" class="icon-button {% if liked_by_me %}active{% endif %}" aria-label="Like">
+                <span aria-hidden="true">❤️</span>
+                <span class="count">{{ like_count }}</span>
+            </button>
+        </form>
+        <button
+            type="button"
+            class="icon-button"
+            aria-label="Zap"
+            hx-get="/posts/{{ event_id }}/zap"
+            hx-target="#modal-root"
+            hx-swap="innerHTML"
+        >
             <span aria-hidden="true">⚡</span>
             <span class="count">{{ zap_count }}</span>
         </button>
-    </form>
+    {% else %}
+        <div class="icon-button" aria-label="Likes" role="status">
+            <span aria-hidden="true">❤️</span>
+            <span class="count">{{ like_count }}</span>
+        </div>
+        <div class="icon-button" aria-label="Zaps" role="status">
+            <span aria-hidden="true">⚡</span>
+            <span class="count">{{ zap_count }}</span>
+        </div>
+    {% endif %}
     {% if total_sats %}
         <span class="muted small">{{ total_sats }} sats</span>
     {% endif %}

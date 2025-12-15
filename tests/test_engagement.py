@@ -70,3 +70,30 @@ def test_zap_endpoint_updates_totals(monkeypatch):
     assert resp.status_code == 200
     assert "⚡" in resp.text
     assert "500" in resp.text
+
+
+def test_recent_fragment_uses_batched_engagement(monkeypatch):
+    client = make_client()
+    publish_sample(client, monkeypatch)
+
+    fragment = client.get("/partials/recent").text
+    assert 'hx-get="/posts/' not in fragment
+    assert 'data-event-id="' in fragment
+
+
+def test_engagement_batch_returns_all_ids(monkeypatch):
+    client = make_client()
+    event_id = publish_sample(client, monkeypatch)
+
+    resp = client.get(f"/posts/engagement?ids={event_id}")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert event_id in payload
+    assert "engagement-bar" in payload[event_id]
+
+    # liking should be reflected for same viewer
+    like_resp = client.post(f"/posts/{event_id}/like", headers={"HX-Request": "true"})
+    assert like_resp.status_code == 200
+    resp2 = client.get(f"/posts/engagement?ids={event_id}")
+    html = resp2.json()[event_id]
+    assert "active" in html
