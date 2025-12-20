@@ -2,6 +2,7 @@
 {% block title %}Imprint · Editor{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="/static/vendor/easymde/easymde.min.css">
+<link rel="stylesheet" href="/static/editor.css">
 {% endblock %}
 {% block content %}
 <section class="stack">
@@ -10,57 +11,69 @@
     <p class="lede">Write in Markdown on the left and watch the preview update. Save a local draft or publish to relays.</p>
 </section>
 <div class="editor-layout">
-    <form method="post" action="/publish" class="card stack editor-form" data-default-mode="{{ editor_mode|default('') }}">
+    <form method="post" action="/publish" class="editor-form" data-default-mode="{{ editor_mode|default('') }}">
         <input type="hidden" name="identifier" value="{{ identifier or '' }}">
         {% if draft_id %}
             <input type="hidden" name="draft_id" value="{{ draft_id }}">
         {% endif %}
-        <div class="field">
-            <label for="title">Title</label>
-            <input id="title" type="text" name="title" value="{{ title }}" required>
-        </div>
-        <div class="field">
-            <label for="summary">Summary (optional)</label>
-            <textarea id="summary" name="summary" rows="2">{{ summary or '' }}</textarea>
-        </div>
-        <div class="field">
-            <label for="tags">Tags (comma-separated, optional)</label>
-            <input id="tags" type="text" name="tags" value="{{ tags or '' }}" placeholder="nostr, writing, tech">
-        </div>
-        <div class="field">
-            <div class="row space-between align-center wrap editor-header">
-                <div class="row gap align-center">
-                    <label for="content">Content</label>
-                    <span class="muted small">Markdown or visual</span>
+        <div class="editor-grid">
+            <details class="editor-section editor-details" open>
+                <summary class="section-head row space-between align-center">
+                    <span class="section-title">Details</span>
+                    <span class="muted small">Title, tags, summary</span>
+                </summary>
+                <div class="details-grid">
+                    <label class="field col-6">
+                        <span>Title</span>
+                        <input id="title" type="text" name="title" value="{{ title }}" required>
+                    </label>
+                    <label class="field col-6">
+                        <span>Tags</span>
+                        <input id="tags" type="text" name="tags" value="{{ tags or '' }}" placeholder="nostr, writing, tech">
+                    </label>
+                    <label class="field col-12">
+                        <span>Summary (optional)</span>
+                        <textarea id="summary" name="summary" rows="2">{{ summary or '' }}</textarea>
+                    </label>
                 </div>
-                <div class="row gap wrap editor-toolbar">
-                    <div class="mode-toggle" role="group" aria-label="Editor mode">
-                        <button type="button" class="mode-button active" data-editor-mode="markdown" aria-pressed="true">Markdown</button>
-                        <button type="button" class="mode-button" data-editor-mode="visual" aria-pressed="false">Visual</button>
+            </details>
+            <section class="editor-panel editor-compose">
+                <div class="editor-toolbar-row">
+                    <div class="segmented" role="group" aria-label="Editor mode">
+                        <button type="button" class="segment active" data-editor-mode="markdown" aria-pressed="true">Markdown</button>
+                        <button type="button" class="segment" data-editor-mode="visual" aria-pressed="false">Visual</button>
                     </div>
-                    <div class="toolbar-actions row gap">
-                        <button type="button" id="toggle-preview" class="icon-button" aria-pressed="false" aria-label="Toggle preview" title="Toggle preview" disabled>
-                            <span class="icon" aria-hidden="true">👁</span>
-                            <span class="label">Preview</span>
-                        </button>
-                        <button type="button" id="toggle-expand" class="icon-button" aria-pressed="false" aria-label="Expand editor" title="Expand editor">
-                            <span class="icon" aria-hidden="true">⤢</span>
-                        </button>
+                    <button type="button" id="toggle-preview" class="toolbar-toggle" aria-pressed="false" aria-label="Toggle preview">
+                        <span aria-hidden="true">👁</span>
+                        <span>Preview</span>
+                    </button>
+                    <div class="toolbar-actions">
+                        <button type="button" id="toggle-expand" class="icon-button compact" aria-pressed="false" aria-label="Expand editor" title="Expand editor">⤢</button>
                     </div>
                 </div>
+                <div class="editor-panel-body">
+                    <label class="field">
+                        <span class="sr-only">Content</span>
+                        <textarea id="content" name="content" rows="12" hx-post="/preview" hx-trigger="keyup changed delay:300ms" hx-target="#preview" hx-swap="innerHTML">{{ content }}</textarea>
+                    </label>
+                </div>
+            </section>
+            <section class="editor-panel editor-preview">
+                <div class="editor-panel-header row space-between align-center">
+                    <h3>Preview</h3>
+                    <span class="muted small">Live</span>
+                </div>
+                <div id="preview" class="prose" aria-live="polite"></div>
+            </section>
+        </div>
+        <div class="editor-actions">
+            <div class="status-message neutral" role="status">Use <strong>Save draft</strong> to keep changes locally. <strong>Publish</strong> sends the signed event to configured relays.</div>
+            <div class="row wrap gap actions">
+                <button type="submit" name="action" value="draft" class="button ghost" formaction="/drafts/save">Save draft</button>
+                <button type="submit" name="action" value="publish" class="button">Publish</button>
             </div>
-            <textarea id="content" name="content" rows="12" hx-post="/preview" hx-trigger="keyup changed delay:300ms" hx-target="#preview" hx-swap="innerHTML">{{ content }}</textarea>
-        </div>
-        <div class="status-message neutral" role="status">Use <strong>Save draft</strong> to keep changes locally. <strong>Publish</strong> sends the signed event to configured relays.</div>
-        <div class="row wrap gap actions">
-            <button type="submit" name="action" value="draft" class="button ghost" formaction="/drafts/save">Save draft</button>
-            <button type="submit" name="action" value="publish" class="button">Publish</button>
         </div>
     </form>
-    <details class="card preview-pane" open>
-        <summary>Preview</summary>
-        <div id="preview" class="prose" aria-live="polite"></div>
-    </details>
 </div>
 {% endblock %}
 {% block extra_scripts %}

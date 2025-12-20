@@ -19,6 +19,8 @@ from app.auth.service import (
     parse_bunker_uri,
     validate_signed_event_payload,
 )
+from app.admin.service import has_allowlisted_pubkey
+from app.admin.service import clear_admin_session
 from app.template_utils import register_filters
 from app.nostr.event import verify_event
 from app.config import settings
@@ -44,7 +46,11 @@ async def auth_modal(request: Request):
 @router.get("/status", response_class=HTMLResponse)
 async def auth_status(request: Request):
     session = getattr(request.state, "session", None) or get_auth_session(request)
-    return templates.TemplateResponse("partials/auth_status.html", {"request": request, "session": session})
+    allowlisted = has_allowlisted_pubkey(request) if session else False
+    return templates.TemplateResponse(
+        "partials/auth_status.html",
+        {"request": request, "session": session, "allowlisted_admin": allowlisted},
+    )
 
 
 def _safe_redirect_target(request: Request) -> str:
@@ -72,6 +78,7 @@ async def login_readonly(request: Request, npub: str = Form(...), duration: str 
     if instance_settings and not instance_settings.enable_registrationless_readonly:
         raise HTTPException(status_code=403, detail="Read-only sessions disabled")
     default_minutes = instance_settings.session_default_minutes if instance_settings else 60
+    clear_admin_session(request)
     create_readonly_session(request, npub, duration, default_minutes=default_minutes)
     return await _login_response(request)
 
@@ -92,6 +99,7 @@ async def login_nip07(request: Request, payload: Any = Body(...)):
         raise HTTPException(status_code=400, detail="Missing pubkey")
     instance_settings = getattr(request.state, "instance_settings", None)
     default_minutes = instance_settings.session_default_minutes if instance_settings else 60
+    clear_admin_session(request)
     create_nip07_session(request, pubkey_hex, duration, default_minutes=default_minutes)
     return await _login_response(request)
 
@@ -112,6 +120,7 @@ async def login_nip46(
     relay_url = parsed.get("relay") or relay
     instance_settings = getattr(request.state, "instance_settings", None)
     default_minutes = instance_settings.session_default_minutes if instance_settings else 60
+    clear_admin_session(request)
     create_nip46_session(request, parsed["signer_pubkey"], relay_url, duration, default_minutes=default_minutes)
     return await _login_response(request)
 
@@ -126,12 +135,14 @@ async def login_local(request: Request, duration: str = Form("1h")):
         raise HTTPException(status_code=400, detail="Local signer unavailable")
     instance_settings = getattr(request.state, "instance_settings", None)
     default_minutes = instance_settings.session_default_minutes if instance_settings else 60
+    clear_admin_session(request)
     create_local_session(request, duration, default_minutes=default_minutes)
     return await _login_response(request)
 
 
 @router.post("/logout", response_class=HTMLResponse)
 async def logout(request: Request):
+    clear_admin_session(request)
     clear_session(request)
     if is_htmx(request):
         return await auth_status(request)

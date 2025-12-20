@@ -15,6 +15,7 @@
 
 <form class="stack" action="/admin/settings" method="post">
     <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="default_relays" value="{{ settings.get('default_relays','') if is_mapping else (settings.default_relays or '') }}">
     {% if errors %}
         <div class="alert">
             <p><strong>Validation errors</strong></p>
@@ -28,140 +29,200 @@
     {% if saved %}
         <div class="alert success">Settings saved.</div>
     {% endif %}
+    {% if relay_error %}
+        <div class="alert">{{ relay_error }}</div>
+    {% endif %}
 
-    <section class="card stack">
-        <h2>Branding</h2>
-        <div class="row gap wrap">
-            <label class="field grow">
+    <details class="card stack admin-section admin-collapsible">
+        <summary class="section-head">
+            <div class="stack">
+                <h2>Branding</h2>
+                <p class="muted small">Identity and voice across the instance.</p>
+            </div>
+        </summary>
+        <div class="admin-section-body stack">
+            <div class="admin-settings-grid">
+            <label class="field">
                 <span>Site name</span>
                 <input type="text" name="site_name" value="{{ settings.get('site_name','') if is_mapping else settings.site_name }}" maxlength="120" required>
             </label>
-            <label class="field grow">
+            <label class="field">
                 <span>Tagline</span>
                 <input type="text" name="site_tagline" value="{{ settings.get('site_tagline','') if is_mapping else (settings.site_tagline or '') }}" maxlength="255">
             </label>
-        </div>
-        <label class="field">
-            <span>Description</span>
-            <textarea name="site_description" maxlength="2000">{{ settings.get('site_description','') if is_mapping else (settings.site_description or '') }}</textarea>
-        </label>
-        <div class="row gap wrap">
-            <label class="field grow">
+            <label class="field span-2">
+                <span>Description</span>
+                <textarea name="site_description" maxlength="2000">{{ settings.get('site_description','') if is_mapping else (settings.site_description or '') }}</textarea>
+            </label>
+            <label class="field span-2">
                 <span>Public base URL</span>
                 <input type="url" name="public_base_url" placeholder="https://example.com" value="{{ settings.get('public_base_url','') if is_mapping else (settings.public_base_url or '') }}">
                 <span class="muted small">Used when generating absolute links.</span>
             </label>
-            <label class="field grow">
-                <span>Theme accent (hex)</span>
-                <input type="text" name="theme_accent" placeholder="#2f6f73" value="{{ settings.get('theme_accent','') if is_mapping else (settings.theme_accent or '') }}">
-            </label>
-        </div>
-    </section>
-
-    <section class="card stack">
-        <h2>Discovery & relays</h2>
-        <label class="field">
-            <span>Default relays (comma-separated)</span>
-            <textarea name="default_relays" placeholder="wss://relay.damus.io,wss://nos.lol" maxlength="1000">{{ settings.get('default_relays','') if is_mapping else (settings.default_relays or '') }}</textarea>
-            <span class="muted small">Use ws:// or wss:// URLs. These are used for indexing and as fallbacks for new users.</span>
-        </label>
-        {% set relay_values = settings.get('default_relays','') if is_mapping else (settings.default_relays or '') %}
-        {% set relay_list = relay_values | tags_list %}
-        {% if relay_list %}
-            <div class="relay-preview">
-                {% for relay in relay_list %}
-                    <span class="relay-chip">{{ relay }}</span>
-                {% endfor %}
             </div>
-        {% endif %}
-        <div class="row gap wrap align-center">
-            <button type="button"
-                    class="button ghost"
-                    hx-post="/admin/relays/test"
-                    hx-include="textarea[name=default_relays], input[name=csrf]"
-                    hx-target="#relay-test-results"
-                    hx-swap="innerHTML">
-                Test relays
-            </button>
-            <span class="muted small">Runs a quick handshake from the server to confirm reachability.</span>
         </div>
-        <div id="relay-test-results"></div>
-        <div class="row gap wrap">
-            <label class="field grow">
+    </details>
+
+    {% set theme_choice = settings.get('theme_accent','') if is_mapping else (settings.theme_accent or '') %}
+    {% set theme_choice = theme_choice | lower %}
+    {% set theme_aliases = {'ocean': 'sky', 'clay': 'linen', 'night': 'night', 'linen': 'linen', 'sky': 'sky', 'midnight': 'midnight'} %}
+    {% set theme_selected = theme_aliases.get(theme_choice, 'linen') %}
+    <details class="card stack admin-section admin-collapsible">
+        <summary class="section-head">
+            <div class="stack">
+                <h2>Theme</h2>
+                <p class="muted small">Pick a preset palette for a consistent visual system.</p>
+            </div>
+        </summary>
+        <div class="admin-section-body stack">
+            <div class="admin-settings-grid">
+            <label class="field">
+                <span>Preset</span>
+                <select name="theme_accent">
+                    <option value="linen" {% if theme_selected == 'linen' %}selected{% endif %}>Linen — warm editorial</option>
+                    <option value="sky" {% if theme_selected == 'sky' %}selected{% endif %}>Sky — crisp & modern</option>
+                    <option value="night" {% if theme_selected == 'night' %}selected{% endif %}>Night — graphite dark</option>
+                    <option value="midnight" {% if theme_selected == 'midnight' %}selected{% endif %}>Midnight — ink & teal</option>
+                </select>
+                <span class="muted small">Applies site-wide. Two light and two dark options.</span>
+            </label>
+            </div>
+        </div>
+    </details>
+
+    <details class="card stack admin-section admin-collapsible">
+        <summary class="section-head">
+            <div class="stack">
+                <h2>Discovery & relays</h2>
+                <p class="muted small">Control what your instance indexes and how it surfaces recent posts.</p>
+            </div>
+        </summary>
+        <div class="admin-section-body stack">
+            <div class="admin-settings-grid">
+            {% set relay_values = settings.get('default_relays','') if is_mapping else (settings.default_relays or '') %}
+            {% set relay_list = relay_values | tags_list %}
+            <label class="field span-2">
+                <span>Relay URL</span>
+                <input type="text" name="relay_url" placeholder="wss://relay.example.com" form="default-relay-add" required>
+                <span class="muted small">Use ws:// or wss:// URLs.</span>
+            </label>
+            <div class="row gap wrap align-center span-2">
+                <button type="submit" class="button" form="default-relay-add">Add relay</button>
+                <button type="button"
+                        class="button ghost"
+                        hx-post="/admin/relays/test"
+                        hx-include="input[name=csrf]"
+                        hx-target="#relay-test-results"
+                        hx-swap="innerHTML">
+                    Test relays
+                </button>
+                <span class="muted small">Runs a quick handshake from the server to confirm reachability.</span>
+            </div>
+            <div id="relay-test-results" class="span-2"></div>
+            <ul class="relay-list span-2" role="list">
+                {% for relay in relay_list %}
+                    <li class="relay-item row space-between align-center">
+                        <div class="stack">
+                            <span class="relay-url">{{ relay }}</span>
+                            <span class="muted small">Default relay</span>
+                        </div>
+                        <button type="submit" class="button ghost" form="remove-relay-{{ loop.index }}">Remove</button>
+                    </li>
+                {% else %}
+                    <li class="muted">No default relays configured.</li>
+                {% endfor %}
+            </ul>
+            <label class="field">
                 <span>Max feed items</span>
                 <input type="number" name="max_feed_items" min="1" max="100" value="{{ settings.get('max_feed_items',15) if is_mapping else settings.max_feed_items }}">
             </label>
-            <label class="field grow">
-                <span>Public essays feed</span>
-                <div class="row gap align-center">
-                    <input type="checkbox" name="enable_public_essays_feed" {% if feed_enabled %}checked{% endif %}>
+            <label class="toggle-card">
+                <div class="stack">
+                    <span class="toggle-title">Public essays feed</span>
                     <span class="muted small">Expose the recent essays list to unauthenticated visitors.</span>
+                </div>
+                <input type="checkbox" name="enable_public_essays_feed" {% if feed_enabled %}checked{% endif %}>
+            </label>
+            </div>
+            <label class="toggle-panel">
+                <input type="checkbox" name="filter_recently_published_to_imprint_only" {% if imprint_filter_enabled %}checked{% endif %}>
+                <div class="stack">
+                    <span class="toggle-title">Filter Recently Published to Imprint-only posts</span>
+                    <span class="muted small">ON: show only long-form events tagged “imprint”. OFF: show all long-form posts. New posts from this server are always tagged for interoperability.</span>
                 </div>
             </label>
         </div>
-        <label class="field row gap align-center">
-            <input type="checkbox" name="filter_recently_published_to_imprint_only" {% if imprint_filter_enabled %}checked{% endif %}>
-            <div class="stack">
-                <span>Filter Recently Published to Imprint-only posts</span>
-                <span class="muted small">ON: show only long-form events tagged “imprint”. OFF: show all long-form posts. New posts from this server are always tagged for interoperability.</span>
-            </div>
-        </label>
-    </section>
+    </details>
 
-    <section class="card stack">
-        <h2>Session defaults</h2>
-        <div class="row gap wrap">
-            <label class="field grow">
+    <details class="card stack admin-section admin-collapsible">
+        <summary class="section-head">
+            <div class="stack">
+                <h2>Session defaults</h2>
+                <p class="muted small">Set the baseline session behavior for visitors and authors.</p>
+            </div>
+        </summary>
+        <div class="admin-section-body stack">
+            <div class="admin-settings-grid">
+            <label class="field">
                 <span>Default session minutes</span>
                 <input type="number" name="session_default_minutes" min="5" max="1440" value="{{ settings.get('session_default_minutes',60) if is_mapping else settings.session_default_minutes }}">
             </label>
-            <label class="field grow">
-                <span>Read-only without registration</span>
-                <div class="row gap align-center">
-                    <input type="checkbox" name="enable_registrationless_readonly" {% if readonly_enabled %}checked{% endif %}>
+            <label class="toggle-card">
+                <div class="stack">
+                    <span class="toggle-title">Read-only without registration</span>
                     <span class="muted small">Allow visitors to browse with only an npub.</span>
                 </div>
+                <input type="checkbox" name="enable_registrationless_readonly" {% if readonly_enabled %}checked{% endif %}>
             </label>
+            </div>
         </div>
-    </section>
+    </details>
 
-    <section class="card stack">
-        <h2>Admin identity & payments</h2>
-        <div class="row gap wrap">
-            <label class="field grow">
+    <details class="card stack admin-section admin-collapsible">
+        <summary class="section-head">
+            <div class="stack">
+                <h2>Admin identity & payments</h2>
+                <p class="muted small">Nostr identity, access control, and donation settings.</p>
+            </div>
+        </summary>
+        <div class="admin-section-body stack">
+            <div class="admin-settings-grid">
+            <label class="field">
                 <span>Instance Nostr address (name@domain)</span>
                 <input type="text" name="instance_nostr_address" value="{{ settings.get('instance_nostr_address','') if is_mapping else (settings.instance_nostr_address or '') }}">
             </label>
-            <label class="field grow">
+            <label class="field">
                 <span>Admin npub</span>
                 <input type="text" name="instance_admin_npub" value="{{ settings.get('instance_admin_npub','') if is_mapping else (settings.instance_admin_npub or '') }}">
             </label>
-        </div>
-        <label class="field">
-            <span>Admin allowlist (npub or nsec, comma-separated)</span>
-            <textarea name="admin_allowlist" rows="2" placeholder="npub1..., nsec1...">{{ settings.get('admin_allowlist','') if is_mapping else (settings.admin_allowlist or '') }}</textarea>
-            <span class="muted small">Users in this list can sign in with their npub (or nsec converted to npub) to access the console.</span>
-        </label>
-        <label class="field">
-            <span>Blocked npubs (comma-separated)</span>
-            <textarea name="blocked_pubkeys" rows="2" placeholder="npub1..., npub1...">{{ settings.get('blocked_pubkeys','') if is_mapping else (settings.blocked_pubkeys or '') }}</textarea>
-            <span class="muted small">These users cannot publish. Provide npubs (or nsecs, stored normalized).</span>
-        </label>
-        <div class="row gap wrap">
-            <label class="field grow">
+            <label class="field span-2">
+                <span>Admin allowlist (npub or nsec, comma-separated)</span>
+                <textarea name="admin_allowlist" rows="2" placeholder="npub1..., nsec1...">{{ settings.get('admin_allowlist','') if is_mapping else (settings.admin_allowlist or '') }}</textarea>
+                <span class="muted small">Users in this list can sign in with their npub (or nsec converted to npub) to access the console.</span>
+            </label>
+            <label class="field span-2">
+                <span>Blocked npubs (comma-separated)</span>
+                <textarea name="blocked_pubkeys" rows="2" placeholder="npub1..., npub1...">{{ settings.get('blocked_pubkeys','') if is_mapping else (settings.blocked_pubkeys or '') }}</textarea>
+                <span class="muted small">These users cannot publish. Provide npubs (or nsecs, stored normalized).</span>
+            </label>
+            <label class="field">
                 <span>Lightning address</span>
                 <input type="text" name="lightning_address" value="{{ settings.get('lightning_address','') if is_mapping else (settings.lightning_address or '') }}" placeholder="you@domain.tld">
             </label>
-            <label class="field grow">
+            <label class="field">
                 <span>Donation message</span>
                 <input type="text" name="donation_message" maxlength="255" value="{{ settings.get('donation_message','') if is_mapping else (settings.donation_message or '') }}">
             </label>
+            </div>
+            <label class="toggle-panel">
+                <input type="checkbox" name="enable_payments" {% if payments_enabled %}checked{% endif %}>
+                <div class="stack">
+                    <span class="toggle-title">Show donation footer</span>
+                    <span class="muted small">Displays the Lightning address in the footer.</span>
+                </div>
+            </label>
         </div>
-        <label class="field row gap align-center">
-            <input type="checkbox" name="enable_payments" {% if payments_enabled %}checked{% endif %}>
-            <span class="muted small">Show the Lightning address in the footer.</span>
-        </label>
-    </section>
+    </details>
 
     <div class="save-bar">
         <div class="row space-between align-center">
@@ -170,4 +231,14 @@
         </div>
     </div>
 </form>
+
+<form id="default-relay-add" method="post" action="/admin/relays/add" class="sr-only">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+</form>
+{% for relay in relay_list %}
+    <form id="remove-relay-{{ loop.index }}" method="post" action="/admin/relays/remove" class="sr-only">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="relay_url" value="{{ relay }}">
+    </form>
+{% endfor %}
 {% endblock %}

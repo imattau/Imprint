@@ -6,11 +6,22 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator
 
+import re
+
 from app.nostr.key import NostrKeyError, decode_nip19, encode_npub
 
 
 ADDRESS_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+$")
 HEX_COLOR_PATTERN = re.compile(r"^#?[0-9a-fA-F]{6}$")
+THEME_PRESETS = {"linen", "sky", "night", "midnight"}
+THEME_ALIASES = {
+    "ocean": "sky",
+    "clay": "linen",
+    "night": "night",
+    "linen": "linen",
+    "sky": "sky",
+    "midnight": "midnight",
+}
 
 
 def _trim(value: Optional[str], max_length: int) -> Optional[str]:
@@ -109,7 +120,11 @@ class InstanceSettingsPayload(BaseModel):
         if not value:
             return None
         try:
-            decode_nip19(value)
+            hex_key = decode_nip19(value)
+            if value.lower().startswith("npub"):
+                normalized = encode_npub(hex_key)
+                if normalized.lower() != value.lower():
+                    raise ValueError("Invalid npub checksum")
         except NostrKeyError as exc:
             raise ValueError("Invalid npub format") from exc
         return value
@@ -120,13 +135,17 @@ class InstanceSettingsPayload(BaseModel):
         if not value:
             return None
         entries = []
-        for raw in value.split(","):
+        for raw in re.split(r"[,\s]+", value):
             candidate = raw.strip()
             if not candidate:
                 continue
             try:
                 # allow npub or nsec, store as npub
                 hex_key = decode_nip19(candidate)
+                if candidate.lower().startswith("npub"):
+                    normalized = encode_npub(hex_key)
+                    if normalized.lower() != candidate.lower():
+                        raise ValueError("Invalid npub checksum")
                 npub = encode_npub(hex_key)
                 entries.append(npub)
             except NostrKeyError as exc:
@@ -139,12 +158,16 @@ class InstanceSettingsPayload(BaseModel):
         if not value:
             return None
         entries = []
-        for raw in value.split(","):
+        for raw in re.split(r"[,\s]+", value):
             candidate = raw.strip()
             if not candidate:
                 continue
             try:
                 hex_key = decode_nip19(candidate)
+                if candidate.lower().startswith("npub"):
+                    normalized = encode_npub(hex_key)
+                    if normalized.lower() != candidate.lower():
+                        raise ValueError("Invalid npub checksum")
                 npub = encode_npub(hex_key)
                 entries.append(npub)
             except NostrKeyError as exc:
@@ -170,8 +193,11 @@ class InstanceSettingsPayload(BaseModel):
     def validate_color(cls, value: Optional[str]):
         if not value:
             return None
+        normalized = value.lower()
+        if normalized in THEME_ALIASES:
+            return THEME_ALIASES[normalized]
         if not HEX_COLOR_PATTERN.match(value):
-            raise ValueError("Accent must be a 6-digit hex color")
+            raise ValueError("Theme must be a preset or 6-digit hex color")
         return value if value.startswith("#") else f"#{value}"
 
     def relays_list(self) -> list[str]:

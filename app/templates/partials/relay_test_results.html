@@ -1,0 +1,20 @@
+{% if tested %}
+    {% if relay_results %}
+        <div class="relay-test-summary">
+            <span class="muted small">Checked {{ relay_results | length }} relays.</span>
+        </div>
+        <div class="relay-test-list">
+            {% for result in relay_results %}
+                <div class="relay-test-item row space-between align-center wrap">
+                    <div class="row align-center gap wrap">
+                        <span class="badge {{ 'tone' if result.status == 'ok' else 'warn' }}">{{ result.status }}</span>
+                        <span class="relay-url">{{ result.relay }}</span>
+                    </div>
+                    <span class="muted small">{{ result.detail }}</span>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="muted small">No relays configured to test.</p>
+    {% endif %}
+{% endif %}

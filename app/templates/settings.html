@@ -1,50 +1,137 @@
 {% extends 'base.html' %}
 {% block title %}Imprint · Settings{% endblock %}
 {% block content %}
-<section class="stack">
-    <p class="eyebrow">Settings</p>
-    <h1>Account & relays</h1>
-    <p class="lede">Configure your publishing key and manage relay connections. Use lightweight forms to keep everything in sync.</p>
-</section>
-<div class="settings-grid">
-    <section class="card stack">
-        <div class="row space-between align-center">
-            <h2>Key status</h2>
-            <span class="badge subtle">Local only</span>
+{% set session = request.state.session %}
+{% set is_readonly = session and session.session_mode.value == 'readonly' %}
+<div class="settings-layout">
+    <aside class="settings-sidebar">
+        <div class="sidebar-header">
+            <div class="eyebrow">Settings</div>
+            <div class="brand-text">Account</div>
         </div>
-        {% if npub %}
-            <p class="muted">npub: <code>{{ npub[:10] }}…{{ npub[-6:] }}</code></p>
-            <p class="muted small">Keys stay on this device; we never store or transmit them beyond signing.</p>
-        {% else %}
-            <p class="warning">No key configured. Set <code>NOSTR_NSEC</code> or <code>NOSTR_SK_HEX</code> in the environment.</p>
-        {% endif %}
-    </section>
-    <section class="card stack">
-        <h2>Relays</h2>
-        <form class="row wrap gap" method="post" action="/settings/relays">
-            <div class="field grow">
-                <label for="relay_url">Relay URL</label>
-                <input id="relay_url" type="url" name="relay_url" placeholder="wss://relay.example.com" required>
+        <nav class="settings-nav">
+            <a href="#account">Account</a>
+            <a href="#relays">Relays</a>
+            <a href="#safety">Safety</a>
+        </nav>
+    </aside>
+    <section class="settings-main stack">
+        <section class="stack">
+            <p class="eyebrow">Settings</p>
+            <h1>Account & relays</h1>
+            <p class="lede">Manage your signing session, publishing relays, and safety controls.</p>
+        </section>
+
+        <section id="account" class="card stack admin-section">
+            <div class="section-head">
+                <h2>Account</h2>
+                <p class="muted small">Session context and publishing identity.</p>
             </div>
-            <div class="field action-field">
-                <button type="submit" class="button">Add relay</button>
-            </div>
-        </form>
-        <ul class="relay-list" role="list">
-            {% for relay in relays %}
-                <li class="relay-item row space-between align-center">
-                    <div class="stack">
-                        <span class="relay-url">{{ relay.url }}</span>
-                        <span class="muted small">Status: <span class="badge subtle">{{ relay.status }}</span></span>
+            <div class="admin-settings-grid">
+                <div class="card stack">
+                    <div class="row space-between align-center">
+                        <h3>Session status</h3>
+                        {% if session %}
+                            <span class="badge tone">{{ session.session_mode.value }}</span>
+                        {% else %}
+                            <span class="badge warn">Signed out</span>
+                        {% endif %}
                     </div>
-                    <form method="post" action="/settings/relays/{{ relay.id }}/delete">
-                        <button type="submit" class="button ghost">Remove</button>
-                    </form>
-                </li>
-            {% else %}
-                <li class="muted">No relays configured.</li>
-            {% endfor %}
-        </ul>
+                    {% if session and session.npub %}
+                        <p class="muted">npub: <code>{{ session.npub | short_identity }}</code></p>
+                        <p class="muted small">Session expires: {{ session.expires_at.strftime('%Y-%m-%d %H:%M') if session.expires_at else 'Never' }}</p>
+                    {% elif npub %}
+                        <p class="muted">npub: <code>{{ npub[:10] }}…{{ npub[-6:] }}</code></p>
+                        <p class="muted small">Keys stay on this device; we never store or transmit them beyond signing.</p>
+                    {% else %}
+                        <p class="warning">No key configured. Set <code>NOSTR_NSEC</code> or <code>NOSTR_SK_HEX</code> in the environment.</p>
+                    {% endif %}
+                    {% if session and session.session_mode.value == 'nip46' and session.relay %}
+                        <p class="muted small">Signer relay: <code>{{ session.relay }}</code></p>
+                    {% endif %}
+                </div>
+                <div class="card stack">
+                    <h3>Publish scope</h3>
+                    <p class="muted small">Posts are sent to your relay list first. If empty, instance defaults apply.</p>
+                    <p class="muted small">Relays are not shared publicly unless your client publishes them.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="relays" class="card stack admin-section">
+            <div class="section-head">
+                <h2>Relays</h2>
+                <p class="muted small">Add the relays you want to publish to by default.</p>
+            </div>
+            <form class="row wrap gap" method="post" action="/settings/relays">
+                <div class="field grow">
+                    <label for="relay_url">Relay URL</label>
+                    <input id="relay_url" type="text" name="relay_url" placeholder="wss://relay.example.com" required {% if is_readonly %}disabled{% endif %}>
+                    <span class="muted small">Use ws:// or wss:// URLs.</span>
+                </div>
+                <div class="field action-field">
+                    <button type="submit" class="button" {% if is_readonly %}disabled{% endif %}>Add relay</button>
+                </div>
+            </form>
+            <div class="row gap wrap align-center">
+                <button type="button"
+                        class="button ghost"
+                        hx-post="/settings/relays/test"
+                        hx-target="#relay-test-results"
+                        hx-swap="innerHTML"
+                        {% if is_readonly %}disabled{% endif %}>
+                    Test relays
+                </button>
+                <span class="muted small">Checks reachability from the server.</span>
+            </div>
+            <div id="relay-test-results"></div>
+            <ul class="relay-list" role="list">
+                {% for relay in relays %}
+                    <li class="relay-item row space-between align-center">
+                        <div class="stack">
+                            <span class="relay-url">{{ relay.url }}</span>
+                            <span class="muted small">Status: <span class="badge subtle">{{ relay.status }}</span></span>
+                        </div>
+                        <form method="post" action="/settings/relays/{{ relay.id }}/delete">
+                            <button type="submit" class="button ghost" {% if is_readonly %}disabled{% endif %}>Remove</button>
+                        </form>
+                    </li>
+                {% else %}
+                    <li class="muted">No relays configured.</li>
+                {% endfor %}
+            </ul>
+        </section>
+
+        <section id="safety" class="card stack admin-section">
+            <div class="section-head">
+                <h2>Safety</h2>
+                <p class="muted small">Block noisy accounts from appearing in comment threads.</p>
+            </div>
+            <form class="row wrap gap" method="post" action="/settings/blocks">
+                <div class="field grow">
+                    <label for="blocked_pubkey">Block npub or hex pubkey</label>
+                    <input id="blocked_pubkey" type="text" name="pubkey" placeholder="npub1..." {% if is_readonly %}disabled{% endif %} required>
+                </div>
+                <div class="field action-field">
+                    <button type="submit" class="button" {% if is_readonly %}disabled{% endif %}>Block user</button>
+                </div>
+            </form>
+            <ul class="relay-list" role="list">
+                {% for block in blocks %}
+                    <li class="relay-item row space-between align-center">
+                        <div class="stack">
+                            <span class="relay-url">{{ block.blocked_pubkey | short_identity }}</span>
+                            <span class="muted small">Blocked</span>
+                        </div>
+                        <form method="post" action="/settings/blocks/{{ block.id }}/delete">
+                            <button type="submit" class="button ghost" {% if is_readonly %}disabled{% endif %}>Unblock</button>
+                        </form>
+                    </li>
+                {% else %}
+                    <li class="muted">No blocked accounts.</li>
+                {% endfor %}
+            </ul>
+        </section>
     </section>
 </div>
 {% endblock %}

@@ -6,6 +6,7 @@ import os
 import time
 from typing import Optional
 from urllib.parse import urlencode
+from urllib.parse import urlparse
 
 import markdown2
 import websockets
@@ -34,7 +35,7 @@ from app.nostr.event import (
     serialize_event,
     ensure_imprint_tag,
 )
-from app.nostr.key import NostrKeyError, npub_from_secret
+from app.nostr.key import NostrKeyError, npub_from_secret, decode_nip19
 from app.nostr.signers import SignerError, signer_from_session
 from app.services.essays import EssayService, RelayPublishError
 from app.services.engagement import engagements_for, toggle_like, hydrate_from_relays, _should_skip_network
@@ -107,8 +108,16 @@ async def inject_session(request: Request, call_next):
         async with get_session() as session:
             settings_service = InstanceSettingsService(session)
             request.state.instance_settings = await settings_service.get_settings()
+            if session_data and session_data.pubkey_hex:
+                result = await session.execute(
+                    select(models.UserRelay).where(models.UserRelay.owner_pubkey == session_data.pubkey_hex)
+                )
+                request.state.user_relays = [row.url for row in result.scalars().all()]
+            else:
+                request.state.user_relays = []
     except Exception:
         request.state.instance_settings = None
+        request.state.user_relays = []
     response = await call_next(request)
     if settings.debug and hasattr(request, "session") and settings.session_cookie_name in response.headers.get("set-cookie", ""):
         logger.debug("Session cookie emitted for path %s", request.url.path)
@@ -120,6 +129,15 @@ async def auth_required_handler(request: Request, exc: AuthRequired):
     return exc.response
 
 
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    if exc.status_code == 403 and request.url.path.startswith("/admin"):
+        accept = request.headers.get("accept", "")
+        if "text/html" in accept:
+            return RedirectResponse(url="/admin", status_code=303)
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
 def parse_tags_input(raw: Optional[str]) -> list[str]:
     if not raw:
         return []
@@ -128,6 +146,9 @@ def parse_tags_input(raw: Optional[str]) -> list[str]:
 
 def relays_for_request(request: Request) -> list[str]:
     instance_settings = getattr(request.state, "instance_settings", None)
+    user_relays = getattr(request.state, "user_relays", None)
+    if user_relays:
+        return user_relays
     if instance_settings and instance_settings.default_relays:
         return [relay.strip() for relay in instance_settings.default_relays.split(",") if relay.strip()]
     return settings.relay_urls
@@ -144,6 +165,28 @@ def _lightning_address_for_author(request: Request, author_pubkey: str) -> Optio
     if os.getenv("PYTEST_CURRENT_TEST"):
         return "test@localhost"
     return None
+
+
+def _normalize_relay_url(value: str) -> str:
+    relay_url = value.strip()
+    parsed = urlparse(relay_url)
+    if parsed.scheme not in {"ws", "wss"} or not parsed.netloc:
+        raise HTTPException(status_code=400, detail="Relay must use ws:// or wss:// and include a host")
+    return relay_url
+
+
+def _normalize_pubkey(value: str) -> str:
+    candidate = value.strip()
+    if not candidate:
+        raise HTTPException(status_code=400, detail="Pubkey is required")
+    if candidate.startswith("npub"):
+        try:
+            return decode_nip19(candidate)
+        except NostrKeyError as exc:
+            raise HTTPException(status_code=400, detail="Invalid npub") from exc
+    if len(candidate) == 64 and all(ch in "0123456789abcdef" for ch in candidate.lower()):
+        return candidate.lower()
+    raise HTTPException(status_code=400, detail="Enter a valid npub or hex pubkey")
 
 
 def _pay_endpoint_from_lud16(address: str) -> Optional[str]:
@@ -1128,9 +1171,24 @@ async def settings_page(request: Request):
     session_data = require_user(request, allow_readonly=True)
     request.state.session = session_data
     async with get_session() as session:
-        relays = (await session.execute(select(models.Relay))).scalars().all()
+        relays = (
+            await session.execute(
+                select(models.UserRelay).where(models.UserRelay.owner_pubkey == (session_data.pubkey_hex or ""))
+            )
+        ).scalars().all()
+        blocks = (
+            await session.execute(
+                select(models.UserBlock).where(models.UserBlock.owner_pubkey == (session_data.pubkey_hex or ""))
+            )
+        ).scalars().all()
     npub = get_npub()
-    context = {"request": request, "relays": relays, "npub": npub}
+    context = {
+        "request": request,
+        "relays": relays,
+        "blocks": blocks,
+        "npub": npub,
+        "session_mode": session_data.session_mode if session_data else None,
+    }
     return templates.TemplateResponse("settings.html", context)
 
 
@@ -1149,36 +1207,83 @@ if settings.debug:
 
 @app.post("/settings/relays")
 async def add_relay(request: Request, relay_url: str = Form(...)):
-    require_user(request, require_signing=True)
+    session_data = require_user(request, require_signing=True)
+    relay_url = _normalize_relay_url(relay_url)
     async with get_session() as session:
-        existing = await session.execute(select(models.Relay).where(models.Relay.url == relay_url))
+        existing = await session.execute(
+            select(models.UserRelay)
+            .where(models.UserRelay.owner_pubkey == (session_data.pubkey_hex or ""))
+            .where(models.UserRelay.url == relay_url)
+        )
         relay = existing.scalars().first()
         if not relay:
-            relay = models.Relay(url=relay_url)
+            relay = models.UserRelay(owner_pubkey=session_data.pubkey_hex or "", url=relay_url)
             session.add(relay)
             await session.commit()
     return RedirectResponse(url="/settings", status_code=303)
 
 @app.post("/settings/relays/{relay_id}/delete")
 async def delete_relay(relay_id: int, request: Request):
-    require_user(request, require_signing=True)
+    session_data = require_user(request, require_signing=True)
     async with get_session() as session:
-        relay = await session.get(models.Relay, relay_id)
-        if relay:
+        relay = await session.get(models.UserRelay, relay_id)
+        if relay and relay.owner_pubkey == (session_data.pubkey_hex or ""):
             await session.delete(relay)
             await session.commit()
     return RedirectResponse(url="/settings", status_code=303)
 
 
-@app.post("/settings/test")
-async def test_relay(request: Request, relay_url: str = Form(...)):
-    require_user(request, require_signing=True)
-    try:
-        async with websockets.connect(relay_url) as ws:
-            await ws.close()
-        return {"status": "ok"}
-    except Exception:
-        return {"status": "failed"}
+@app.post("/settings/blocks")
+async def add_block(request: Request, pubkey: str = Form(...)):
+    session_data = require_user(request, require_signing=True)
+    blocked_pubkey = _normalize_pubkey(pubkey)
+    async with get_session() as session:
+        existing = await session.execute(
+            select(models.UserBlock)
+            .where(models.UserBlock.owner_pubkey == (session_data.pubkey_hex or ""))
+            .where(models.UserBlock.blocked_pubkey == blocked_pubkey)
+        )
+        block = existing.scalars().first()
+        if not block:
+            block = models.UserBlock(owner_pubkey=session_data.pubkey_hex or "", blocked_pubkey=blocked_pubkey)
+            session.add(block)
+            await session.commit()
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@app.post("/settings/blocks/{block_id}/delete")
+async def delete_block(block_id: int, request: Request):
+    session_data = require_user(request, require_signing=True)
+    async with get_session() as session:
+        block = await session.get(models.UserBlock, block_id)
+        if block and block.owner_pubkey == (session_data.pubkey_hex or ""):
+            await session.delete(block)
+            await session.commit()
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@app.post("/settings/relays/test", response_class=HTMLResponse)
+async def test_user_relays(request: Request):
+    session_data = require_user(request, require_signing=True)
+    async with get_session() as session:
+        result = await session.execute(
+            select(models.UserRelay).where(models.UserRelay.owner_pubkey == (session_data.pubkey_hex or ""))
+        )
+        relays = [row.url for row in result.scalars().all()]
+
+    async def _check(relay: str):
+        try:
+            async with websockets.connect(relay, open_timeout=4, close_timeout=4) as ws:
+                await ws.close()
+            return {"relay": relay, "status": "ok", "detail": "Handshake ok"}
+        except Exception as exc:  # noqa: BLE001
+            return {"relay": relay, "status": "failed", "detail": f"{type(exc).__name__}"}
+
+    results = await asyncio.gather(*(_check(relay) for relay in relays)) if relays else []
+    return templates.TemplateResponse(
+        "partials/relay_test_results.html",
+        {"request": request, "relay_results": results, "tested": True},
+    )
 
 
 @app.get("/healthz")

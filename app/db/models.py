@@ -75,6 +75,18 @@ class Relay(Base):
     created_at = Column(DateTime, default=lambda: dt.datetime.now(dt.timezone.utc))
 
 
+class UserRelay(Base):
+    __tablename__ = "user_relays"
+    id = Column(Integer, primary_key=True)
+    owner_pubkey = Column(String(128), index=True, nullable=False)
+    url = Column(String(255), nullable=False)
+    status = Column(String(50), default="unknown")
+    last_checked = Column(DateTime)
+    created_at = Column(DateTime, default=lambda: dt.datetime.now(dt.timezone.utc))
+
+    __table_args__ = (UniqueConstraint("owner_pubkey", "url", name="uix_user_relays_owner_url"),)
+
+
 class UserBlock(Base):
     __tablename__ = "user_blocks"
 

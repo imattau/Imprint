@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
 import asyncio
 import secrets
 from typing import Optional
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Form, Request, UploadFile, File, status
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
@@ -15,6 +17,7 @@ import websockets
 
 from app.admin.service import (
     admin_token,
+    admin_allowlist,
     clear_admin_session,
     coerce_payload,
     ensure_admin_csrf,
@@ -36,6 +39,7 @@ from app.template_utils import register_filters
 router = APIRouter(prefix="/admin", tags=["admin"])
 templates = Jinja2Templates(directory="app/templates")
 register_filters(templates)
+logger = logging.getLogger(__name__)
 
 
 async def db_session():
@@ -48,9 +52,49 @@ async def admin_home(request: Request, session: AsyncSession = Depends(db_sessio
     settings = await InstanceSettingsService(session).get_settings()
     csrf = ensure_admin_csrf(request)
     if not request.session.get("is_admin") and has_allowlisted_pubkey(request):
+        auth_session = get_auth_session(request)
+        await AdminEventService(session).log_event(
+            action="admin_allowlist_login",
+            level="info",
+            message="Admin session granted via allowlist",
+            actor_pubkey=auth_session.pubkey_hex if auth_session else None,
+            metadata={
+                "npub": getattr(auth_session, "npub", None),
+                "pubkey_hex": getattr(auth_session, "pubkey_hex", None),
+            },
+        )
+        logger.info(
+            "Admin allowlist auto-login npub=%s pubkey_hex=%s allowlisted=%s",
+            getattr(auth_session, "npub", None),
+            getattr(auth_session, "pubkey_hex", None),
+            True,
+        )
         issue_admin_session(request)
         return RedirectResponse(url="/admin", status_code=status.HTTP_303_SEE_OTHER)
     if not request.session.get("is_admin"):
+        auth_session = get_auth_session(request)
+        instance_allowlist = []
+        if settings and settings.admin_allowlist:
+            instance_allowlist = [npub.strip().lower() for npub in settings.admin_allowlist.split(",") if npub.strip()]
+        allowlist_values = sorted(set(admin_allowlist()).union(instance_allowlist))
+        await AdminEventService(session).log_event(
+            action="admin_login_required",
+            level="warn",
+            message="Admin login required",
+            actor_pubkey=auth_session.pubkey_hex if auth_session else None,
+            metadata={
+                "npub": getattr(auth_session, "npub", None),
+                "pubkey_hex": getattr(auth_session, "pubkey_hex", None),
+                "allowlisted": has_allowlisted_pubkey(request),
+                "allowlist": allowlist_values,
+            },
+        )
+        logger.info(
+            "Admin login required npub=%s pubkey_hex=%s allowlisted=%s",
+            getattr(auth_session, "npub", None),
+            getattr(auth_session, "pubkey_hex", None),
+            has_allowlisted_pubkey(request),
+        )
         context = {
             "request": request,
             "allowlisted": has_allowlisted_pubkey(request),
@@ -188,6 +232,7 @@ async def save_settings(
     auth_session = get_auth_session(request)
     updated_by = auth_session.pubkey_hex if auth_session else None
     settings_obj = await settings_service.update_settings(payload, updated_by)
+    request.state.instance_settings = settings_obj
     context = {
         "request": request,
         "settings": settings_obj,
@@ -236,15 +281,26 @@ async def logs_page(
     return templates.TemplateResponse("admin/logs.html", context)
 
 
+def _normalize_relay_url(value: str) -> str:
+    relay_url = value.strip()
+    parsed = urlparse(relay_url)
+    if parsed.scheme not in {"ws", "wss"} or not parsed.netloc:
+        raise ValueError("Relay must use ws:// or wss:// and include a host")
+    return relay_url
+
+
 @router.post("/relays/test", response_class=HTMLResponse)
 async def test_relays(
     request: Request,
     session: AsyncSession = Depends(db_session),
-    default_relays: str = Form(""),
+    default_relays: Optional[str] = Form(None),
     csrf: str = Form(""),
 ):
     require_admin(request)
     validate_admin_csrf(request, csrf)
+    if default_relays is None:
+        settings = await InstanceSettingsService(session).get_settings()
+        default_relays = settings.default_relays or ""
     try:
         payload = InstanceSettingsPayload.model_validate({"default_relays": default_relays})
         relay_list = payload.relays_list()
@@ -278,6 +334,71 @@ async def test_relays(
         "admin/partials/relay_test_results.html",
         {"request": request, "errors": [], "relay_results": results, "tested": True},
     )
+
+
+@router.post("/relays/add")
+async def add_default_relay(
+    request: Request,
+    session: AsyncSession = Depends(db_session),
+    relay_url: str = Form(""),
+    csrf: str = Form(""),
+):
+    require_admin(request)
+    validate_admin_csrf(request, csrf)
+    settings_service = InstanceSettingsService(session)
+    settings_obj = await settings_service.get_settings()
+    try:
+        relay_url = _normalize_relay_url(relay_url)
+    except ValueError as exc:
+        context = {
+            "request": request,
+            "settings": settings_obj,
+            "csrf": ensure_admin_csrf(request),
+            "relay_error": str(exc),
+        }
+        return templates.TemplateResponse("admin/settings.html", context, status_code=status.HTTP_400_BAD_REQUEST)
+
+    relays = [relay.strip() for relay in (settings_obj.default_relays or "").split(",") if relay.strip()]
+    if relay_url not in relays:
+        relays.append(relay_url)
+        settings_obj.default_relays = ",".join(relays)
+        auth_session = get_auth_session(request)
+        settings_obj.updated_by_pubkey = auth_session.pubkey_hex if auth_session else None
+        await session.commit()
+        await AdminEventService(session).log_event(
+            action="default_relay_added",
+            level="info",
+            message=f"Added default relay {relay_url}",
+            actor_pubkey=settings_obj.updated_by_pubkey,
+        )
+    return RedirectResponse(url="/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/relays/remove")
+async def remove_default_relay(
+    request: Request,
+    session: AsyncSession = Depends(db_session),
+    relay_url: str = Form(""),
+    csrf: str = Form(""),
+):
+    require_admin(request)
+    validate_admin_csrf(request, csrf)
+    settings_service = InstanceSettingsService(session)
+    settings_obj = await settings_service.get_settings()
+    relays = [relay.strip() for relay in (settings_obj.default_relays or "").split(",") if relay.strip()]
+    if relay_url in relays:
+        relays = [relay for relay in relays if relay != relay_url]
+        settings_obj.default_relays = ",".join(relays) if relays else None
+        auth_session = get_auth_session(request)
+        settings_obj.updated_by_pubkey = auth_session.pubkey_hex if auth_session else None
+        await session.commit()
+        await AdminEventService(session).log_event(
+            action="default_relay_removed",
+            level="info",
+            message=f"Removed default relay {relay_url}",
+            actor_pubkey=settings_obj.updated_by_pubkey,
+        )
+    return RedirectResponse(url="/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/backup/create")

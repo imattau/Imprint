@@ -10,7 +10,8 @@
     let expandButtonRef = null;
     let previewButtonRef = null;
     let modeButtons = [];
-    let isPreviewing = false;
+    let previewOpen = false;
+    let gridRef = null;
 
     function safeGet(key) {
         try {
@@ -87,7 +88,6 @@
         if (easyMDE || !window.EasyMDE || !textareaRef || !formRef) {
             return;
         }
-        isPreviewing = false;
         easyMDE = new EasyMDE({
             element: textareaRef,
             autoDownloadFontAwesome: false,
@@ -118,7 +118,6 @@
 
     function disableVisualMode() {
         if (!formRef) return;
-        disablePreviewState();
         if (easyMDE && textareaRef) {
             textareaRef.value = easyMDE.value();
             easyMDE.toTextArea();
@@ -132,7 +131,16 @@
         const normalized = nextMode === "visual" ? "visual" : "markdown";
         if (normalized === "visual" && !window.EasyMDE) {
             currentMode = "markdown";
+            disableVisualMode();
+            previewOpen = true;
+            if (gridRef) {
+                gridRef.classList.add("preview-open");
+            }
             updateModeButtons(currentMode);
+            updatePreviewButton();
+            if (!opts.skipStore) {
+                safeSet(MODE_KEY, currentMode);
+            }
             return;
         }
 
@@ -140,6 +148,16 @@
             enableVisualMode();
         } else {
             disableVisualMode();
+        }
+
+        if (normalized === "visual") {
+            previewOpen = false;
+            if (gridRef) {
+                gridRef.classList.remove("preview-open");
+            }
+        } else if (gridRef) {
+            previewOpen = true;
+            gridRef.classList.add("preview-open");
         }
 
         currentMode = normalized;
@@ -150,30 +168,21 @@
         }
     }
 
-    function togglePreview() {
-        if (!easyMDE) return;
-        easyMDE.togglePreview();
-        isPreviewing = !isPreviewing;
-        updatePreviewButton();
-        refreshEditor();
-    }
-
-    function disablePreviewState() {
-        if (isPreviewing && easyMDE) {
-            easyMDE.togglePreview();
-        }
-        isPreviewing = false;
-        updatePreviewButton();
-    }
-
     function updatePreviewButton() {
         if (!previewButtonRef) return;
-        const disabled = currentMode !== "visual" || !easyMDE;
-        previewButtonRef.disabled = disabled;
-        const active = !disabled && isPreviewing;
-        previewButtonRef.classList.toggle("active", active);
-        previewButtonRef.setAttribute("aria-pressed", String(active));
-        previewButtonRef.setAttribute("title", disabled ? "Preview available in Visual mode" : active ? "Exit preview" : "Toggle preview");
+        const isVisual = currentMode === "visual";
+        previewButtonRef.disabled = isVisual;
+        previewButtonRef.classList.toggle("is-active", previewOpen && !isVisual);
+        previewButtonRef.setAttribute("aria-pressed", String(previewOpen && !isVisual));
+        const label = isVisual ? "Preview hidden in visual mode" : previewOpen ? "Hide preview" : "Show preview";
+        previewButtonRef.setAttribute("title", label);
+    }
+
+    function togglePreviewPanel() {
+        if (!gridRef || currentMode === "visual") return;
+        previewOpen = !previewOpen;
+        gridRef.classList.toggle("preview-open", previewOpen);
+        updatePreviewButton();
     }
 
     function bindGlobalHandlers() {
@@ -196,12 +205,12 @@
 
         formRef = form;
         textareaRef = textarea;
+        gridRef = form.querySelector(".editor-grid");
         expandButtonRef = document.getElementById("toggle-expand");
         previewButtonRef = document.getElementById("toggle-preview");
         modeButtons = Array.from(form.querySelectorAll("[data-editor-mode]"));
         textareaRef.dataset.editorBound = "1";
         setExpanded(false);
-
         bindGlobalHandlers();
 
         const defaultMode = form.dataset.defaultMode || ""; // TODO: allow server-side user preference.
@@ -226,16 +235,15 @@
         });
 
         if (previewButtonRef) {
-            previewButtonRef.addEventListener("click", () => {
-                togglePreview();
-            });
+            previewButtonRef.addEventListener("click", togglePreviewPanel);
         }
+
+        window.addEventListener("resize", updatePreviewButton);
 
         form.addEventListener("submit", () => {
             if (easyMDE) {
                 syncTextareaValue();
             }
-            disablePreviewState();
         });
     }
 

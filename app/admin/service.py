@@ -27,20 +27,32 @@ def admin_token() -> Optional[str]:
 
 def admin_allowlist() -> set[str]:
     # From environment and static settings
-    env_list = {npub.strip() for npub in os.getenv("ADMIN_NPUBS", "").split(",") if npub.strip()}
-    configured = set(app_settings.admin_npubs or [])
+    env_list = {npub.strip().lower() for npub in os.getenv("ADMIN_NPUBS", "").split(",") if npub.strip()}
+    configured = {npub.strip().lower() for npub in (app_settings.admin_npubs or []) if npub}
     return {npub for npub in env_list.union(configured) if npub}
 
 
 def has_allowlisted_pubkey(request: Request) -> bool:
     session = get_auth_session(request)
-    if not session or not session.npub:
+    if not session:
         return False
     allowlist = set(admin_allowlist())
     instance_settings = getattr(request.state, "instance_settings", None)
     if instance_settings and instance_settings.admin_allowlist:
-        allowlist.update({npub.strip() for npub in instance_settings.admin_allowlist.split(",") if npub.strip()})
-    return session.npub in allowlist
+        allowlist.update(
+            {npub.strip().lower() for npub in instance_settings.admin_allowlist.split(",") if npub.strip()}
+        )
+    if session.npub and session.npub.lower() in allowlist:
+        return True
+    if not session.pubkey_hex:
+        return False
+    hex_allowlist = set()
+    for entry in allowlist:
+        try:
+            hex_allowlist.add(decode_nip19(entry))
+        except NostrKeyError:
+            continue
+    return session.pubkey_hex in hex_allowlist
 
 
 def issue_admin_session(request: Request) -> None:

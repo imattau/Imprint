@@ -20,7 +20,7 @@
             <a class="button ghost full" href="/drafts">Drafts</a>
             <a class="button ghost full" href="/history">Post history</a>
             <a class="button ghost full" href="/settings">Settings</a>
-            {% if request.state.is_admin %}
+            {% if request.state.is_admin or allowlisted_admin %}
                 <a class="button ghost full" href="/admin">Admin</a>
             {% endif %}
             <div class="menu-section">

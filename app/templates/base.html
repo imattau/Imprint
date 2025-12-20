@@ -1,14 +1,22 @@
 <!doctype html>
-<html lang="en">
+{% set instance_settings = request.state.instance_settings %}
+{% set theme_value = instance_settings.theme_accent if instance_settings and instance_settings.theme_accent else '' %}
+{% set theme_value = theme_value | lower %}
+{% set theme_presets = ['linen', 'sky', 'night', 'midnight'] %}
+{% set theme_aliases = {'ocean': 'sky', 'clay': 'linen', 'night': 'night', 'linen': 'linen', 'sky': 'sky', 'midnight': 'midnight'} %}
+{% set theme_key = theme_aliases.get(theme_value, 'linen') %}
+<html lang="en" data-theme="{{ theme_key }}">
 <head>
-    {% set instance_settings = request.state.instance_settings %}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}{{ instance_settings.site_name if instance_settings else 'Imprint' }}{% endblock %}</title>
-    <link rel="stylesheet" href="/static/styles.css">
-    <style>
-        :root { --accent: {{ (instance_settings.theme_accent if instance_settings and instance_settings.theme_accent else '#2f6f73') }}; }
-    </style>
+    {% set css_version = instance_settings.updated_at.timestamp() | int if instance_settings and instance_settings.updated_at else 1 %}
+    <link rel="stylesheet" href="/static/styles.css?v={{ css_version }}">
+    {% if theme_value and theme_value not in theme_aliases %}
+        <style>
+            :root { --accent: {{ theme_value }}; }
+        </style>
+    {% endif %}
     <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
     <script src="/static/auth.js" defer></script>
     <script src="/static/zap.js" defer></script>
