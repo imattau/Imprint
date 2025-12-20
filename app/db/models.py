@@ -75,6 +75,27 @@ class Relay(Base):
     created_at = Column(DateTime, default=lambda: dt.datetime.now(dt.timezone.utc))
 
 
+class UserBlock(Base):
+    __tablename__ = "user_blocks"
+
+    id = Column(Integer, primary_key=True)
+    owner_pubkey = Column(String(128), index=True, nullable=False)
+    blocked_pubkey = Column(String(128), index=True, nullable=False)
+    created_at = Column(DateTime, default=lambda: dt.datetime.now(dt.timezone.utc))
+
+    __table_args__ = (UniqueConstraint("owner_pubkey", "blocked_pubkey", name="uix_user_blocks_owner_blocked"),)
+
+
+class CommentCache(Base):
+    __tablename__ = "comment_cache"
+
+    id = Column(Integer, primary_key=True)
+    root_id = Column(String(128), index=True, nullable=False)
+    event_id = Column(String(128), unique=True, nullable=False)
+    event_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=lambda: dt.datetime.now(dt.timezone.utc))
+
+
 class InstanceSettings(Base):
     __tablename__ = "instance_settings"
 

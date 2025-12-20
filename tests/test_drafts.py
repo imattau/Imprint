@@ -1,5 +1,6 @@
 import asyncio
 
+from ecdsa import SECP256k1, SigningKey
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -11,6 +12,11 @@ from app.main import app, init_models
 def make_client() -> TestClient:
     asyncio.run(init_models())
     return TestClient(app)
+
+
+def valid_secret(seed: str) -> str:
+    sk = SigningKey.from_string((seed.encode("utf-8") * 32)[:32], curve=SECP256k1)
+    return sk.to_string().hex()
 
 
 async def _first_draft():
@@ -60,7 +66,7 @@ def test_publish_draft_requires_signer_not_readonly():
 
 def test_history_shows_published_post(monkeypatch):
     client = make_client()
-    monkeypatch.setattr("app.config.settings.nostr_secret", "1" * 64)
+    monkeypatch.setattr("app.config.settings.nostr_secret", valid_secret("draft1"))
     resp = client.post("/auth/login/local", data={"duration": "1h"}, headers={"HX-Request": "true"})
     assert resp.status_code == 200
     publish_resp = client.post(
@@ -75,7 +81,7 @@ def test_history_shows_published_post(monkeypatch):
 
 def test_published_draft_disappears_from_list(monkeypatch):
     client = make_client()
-    monkeypatch.setattr("app.config.settings.nostr_secret", "2" * 64)
+    monkeypatch.setattr("app.config.settings.nostr_secret", valid_secret("draft2"))
     resp = client.post("/auth/login/local", data={"duration": "1h"}, headers={"HX-Request": "true"})
     assert resp.status_code == 200
 

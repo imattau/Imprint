@@ -6,15 +6,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}{{ instance_settings.site_name if instance_settings else 'Imprint' }}{% endblock %}</title>
     <link rel="stylesheet" href="/static/styles.css">
-    {% if instance_settings and instance_settings.theme_accent %}
     <style>
-        :root { --accent: {{ instance_settings.theme_accent }}; }
+        :root { --accent: {{ (instance_settings.theme_accent if instance_settings and instance_settings.theme_accent else '#2f6f73') }}; }
     </style>
-    {% endif %}
     <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
     <script src="/static/auth.js" defer></script>
     <script src="/static/zap.js" defer></script>
     <script src="/static/engagement_batch.js" defer></script>
+    <link rel="stylesheet" href="/static/comments.css">
     {% block extra_head %}{% endblock %}
 </head>
 <body>

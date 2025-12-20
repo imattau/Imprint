@@ -1,0 +1,66 @@
+.comments-list {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.comments-shell {
+    position: relative;
+}
+
+.comment {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.75rem;
+    background: #fffdf8;
+}
+
+.comment-header {
+    margin-bottom: 0.25rem;
+    font-size: 0.95rem;
+}
+
+.comment-body p {
+    margin: 0.25rem 0 0.5rem;
+    white-space: pre-wrap;
+}
+
+.comment-actions {
+    margin-top: 0.25rem;
+}
+
+.inline-reply {
+    display: inline-block;
+}
+
+.inline-reply form {
+    margin-top: 0.35rem;
+}
+
+.comment-header {
+    gap: 0.5rem;
+}
+
+.comment-skeleton {
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+    padding: 0.75rem;
+    background: #fafafa;
+}
+
+.skeleton-line {
+    height: 10px;
+    background: linear-gradient(90deg, #f1f1f1, #e5e5e5, #f1f1f1);
+    background-size: 200% 100%;
+    animation: pulse 1.1s ease-in-out infinite;
+    margin-bottom: 0.4rem;
+    border-radius: 4px;
+}
+
+.skeleton-line.short {
+    width: 40%;
+}
+
+@keyframes pulse {
+    0% { background-position: 0% 0; }
+    100% { background-position: -200% 0; }
+}

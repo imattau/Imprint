@@ -1,0 +1,51 @@
+{% macro render_comment(comment, viewer, blocked_pubkeys, comment_root_id, depth) %}
+<div class="comment" style="margin-left: {{ (depth|default(0)) * 1.25 }}rem" id="comment-{{ comment.id }}">
+    <div class="comment-header row gap align-center">
+        <strong>{{ comment.pubkey[:12] }}…</strong>
+        <span class="muted small">{{ comment.created_at }}</span>
+        {% if comment.deleted %}<span class="muted small">(deleted)</span>{% endif %}
+    </div>
+    <div class="comment-body">
+        {% if comment.deleted %}
+            <p class="muted small">Comment deleted</p>
+        {% else %}
+            <p>{{ comment.content }}</p>
+        {% endif %}
+    </div>
+    <div class="comment-actions row gap small">
+        {% if viewer and viewer.pubkey_hex and viewer.pubkey_hex == comment.pubkey and not comment.deleted %}
+            <form hx-post="/posts/{{ comment_root_id }}/comments/{{ comment.id }}/delete" hx-target="#comments-wrapper" hx-swap="outerHTML">
+                <button type="submit" class="icon-button ghost">Delete</button>
+            </form>
+        {% endif %}
+        {% if viewer and viewer.pubkey_hex and viewer.pubkey_hex != comment.pubkey %}
+            {% if comment.pubkey in blocked_pubkeys %}
+                <form hx-post="/me/unblock/{{ comment.pubkey }}" hx-target="#comments-wrapper" hx-swap="none">
+                    <button type="submit" class="icon-button ghost">Unblock</button>
+                </form>
+            {% else %}
+                <form hx-post="/me/block/{{ comment.pubkey }}" hx-target="#comments-wrapper" hx-swap="none">
+                    <button type="submit" class="icon-button ghost">Block</button>
+                </form>
+            {% endif %}
+        {% endif %}
+        {% if viewer and viewer.session_mode != 'readonly' %}
+            <details class="inline-reply">
+                <summary class="icon-button ghost">Reply</summary>
+                <form class="stack" hx-post="/posts/{{ comment_root_id }}/comments" hx-target="#comments-wrapper" hx-swap="outerHTML">
+                    <input type="hidden" name="parent_id" value="{{ comment.id }}">
+                    <textarea name="content" rows="2" placeholder="Reply to {{ comment.pubkey[:8] }}…" required></textarea>
+                    <button type="submit" class="button ghost">Post reply</button>
+                </form>
+            </details>
+        {% endif %}
+    </div>
+    {% if comment.replies %}
+        <div class="comment-children">
+            {% for child in comment.replies %}
+                {{ render_comment(child, viewer, blocked_pubkeys, comment_root_id, (depth|default(0))+1) }}
+            {% endfor %}
+        </div>
+    {% endif %}
+</div>
+{% endmacro %}

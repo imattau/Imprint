@@ -63,6 +63,6 @@
 
 ## Current status
 - Audit complete; tests not yet passing (timeout; draft publish test previously failing).  
-- ACL fixes partially applied (editor/publish ownership). Further validation/tests pending.  
+- ACL fixes applied (editor/publish/drafts/revert ownership) with new regression tests in `tests/test_acl.py`.  
 - Engagement partial fix applied (non-interactive recent). Needs verification.  
-- Next action: add missing ownership tests for drafts, re-run pytest, and iterate.
+- Next action: run pytest suite when environment allows; proceed to engagement batching and filter correctness.

@@ -13,8 +13,8 @@
 ## Known gaps / stubs / placeholders
 | Severity | File:Line | Finding | Notes |
 | --- | --- | --- | --- |
-| High | app/main.py:326-345 | Editor load for identifier does not enforce author in history listing; fixed partially but broader ACL needs audit | P0 ACL |
-| High | app/main.py:374-415 | Publish allows identifier if existing belongs to other author (now guarded) but drafts/revert need consistent checks | P0 ACL |
+| High | app/main.py:326-345 | Editor load author check in place; verify end-to-end ACL via tests | P0 ACL (tests added in tests/test_acl.py) |
+| High | app/main.py:374-415 | Publish identifier ownership guarded; drafts/revert now have ownership checks; keep in regression set | P0 ACL |
 | High | app/main.py:675-713 | Revert requires ownership; relies on DB only, no relay check | |
 | High | app/nostr/relay_client.py | Relay publish/fetch bypassed in tests; no rate limiting beyond simple backoff; no batching beyond per-call | P0 relay reliability |
 | High | app/templates/fragments/essays_list.html | Engagement bar previously interactive in partials causing HTMX cascades; now rendered with flag but underlying counts still zeroed | P1 engagement correctness |
@@ -23,12 +23,14 @@
 | Medium | app/static/editor.js:207 | TODO for server-side editor mode preference | |
 | Medium | app/main.py:148 | Placeholder lightning address for tests | Acceptable for tests; document |
 | Medium | app/main.py recent fragment | Partials do not redirect non-HTMX; potential UX mismatch | |
+| Medium | Comments feature | Newly added; requires full test coverage and relay wiring validation | |
 | Low | app/templates/* placeholders | Placeholder inputs in settings/auth modal | Cosmetic |
 | Low | app/nostr/relay_client.py | `_should_skip` skips relay I/O in tests; doc this behaviour | |
 
 ## Baseline test/lint status
 - `poetry run pytest -q` (subset `tests/test_drafts.py tests/test_engagement.py tests/test_revise_authorization.py`) **timed out at 120s in this environment**; full suite not executed. Prior known failure: `test_published_draft_disappears_from_list` (draft publish 404). Needs rerun after fixes.
 - No configured linter found; ruff not run.
+- Mypy configured (permissive) now runs clean: `poetry run mypy app tests` succeeds.
 
 ## Reported bugs (from users/tests)
 - P0: Unauthorized revise allowed for non-authors (fixed partially; needs full coverage).

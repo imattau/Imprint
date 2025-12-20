@@ -60,5 +60,8 @@
             {% endfor %}
         </ul>
     </details>
+    {% if comment_root_id %}
+    <div id="comments-section" hx-get="/posts/{{ comment_root_id }}/comments" hx-trigger="load" hx-target="this" hx-swap="outerHTML"></div>
+    {% endif %}
 </article>
 {% endblock %}

@@ -1,0 +1,28 @@
+<section id="comments-section" class="stack" hx-trigger="commentsRefresh from:body">
+    <div class="row space-between align-center comment-header">
+        <h3>Comments</h3>
+    </div>
+    {% if viewer and viewer.session_mode != 'readonly' %}
+        <form class="stack" hx-post="/posts/{{ comment_root_id }}/comments" hx-target="#comments-wrapper" hx-swap="outerHTML">
+            <textarea name="content" rows="3" placeholder="Add a comment" required></textarea>
+            <button type="submit" class="button">Post comment</button>
+        </form>
+    {% elif viewer %}
+        <p class="muted small">Read-only session. Switch to a signer session to comment.</p>
+    {% else %}
+        <p class="muted small">Sign in to post a comment.</p>
+    {% endif %}
+    <div id="comments-wrapper"
+         class="stack comments-shell"
+         hx-get="/posts/{{ comment_root_id }}/comments/list"
+         hx-trigger="load, commentsRefresh from:body"
+         hx-target="this"
+         hx-swap="outerHTML">
+        <div class="comment-skeleton stack">
+            <div class="skeleton-line short"></div>
+            <div class="skeleton-line"></div>
+            <div class="skeleton-line"></div>
+            <p class="muted small">Loading comments…</p>
+        </div>
+    </div>
+</section>

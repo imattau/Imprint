@@ -1,0 +1,27 @@
+{% from 'partials/comment_item.html' import render_comment %}
+<div id="comments-wrapper"
+     class="stack comments-shell"
+     hx-get="/posts/{{ comment_root_id }}/comments/list"
+     hx-trigger="commentsRefresh from:body"
+     hx-target="this"
+     hx-swap="outerHTML">
+    <div class="row space-between align-center comment-header">
+        <span class="muted small">
+            {{ comment_count }} comment{{ '' if comment_count == 1 else 's' }}
+        </span>
+        <button type="button"
+                class="ghost small"
+                hx-get="/posts/{{ comment_root_id }}/comments/list"
+                hx-target="#comments-wrapper"
+                hx-swap="outerHTML">
+            Refresh
+        </button>
+    </div>
+    <div class="stack comments-list">
+        {% for c in comments %}
+            {{ render_comment(c, viewer, blocked_pubkeys, comment_root_id, 0) }}
+        {% else %}
+            <p class="muted">No comments yet.</p>
+        {% endfor %}
+    </div>
+</div>

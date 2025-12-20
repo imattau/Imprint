@@ -24,8 +24,8 @@ from app.auth.routes import router as auth_router
 from app.auth.service import AuthRequired, get_auth_session, require_signing_session, require_user
 from app.auth.schemas import SessionMode, SessionData
 from app.db import models
-from app.db.session import aengine, get_session
-from app.db.schema_upgrade import ensure_instance_settings_schema
+from app.db.session import get_session, resolve_database_url, get_engine, _session_factory
+from app.db.schema_upgrade import ensure_instance_settings_schema_sync
 from app.indexer import run_indexer
 from app.nostr.event import (
     build_long_form_event_template,
@@ -36,9 +36,11 @@ from app.nostr.event import (
 )
 from app.nostr.key import NostrKeyError, npub_from_secret
 from app.nostr.signers import SignerError, signer_from_session
-from app.services.essays import EssayService
+from app.services.essays import EssayService, RelayPublishError
 from app.services.engagement import engagements_for, toggle_like, hydrate_from_relays, _should_skip_network
 from app.template_utils import register_filters
+from app.comments.service import CommentService, CommentCache
+comment_cache = CommentCache(ttl=45)
 
 app = FastAPI(title="Imprint", version="0.1.0")
 templates = Jinja2Templates(directory="app/templates")
@@ -153,6 +155,16 @@ def _pay_endpoint_from_lud16(address: str) -> Optional[str]:
     return f"https://{host}/.well-known/lnurlp/{user}"
 
 
+def _count_comment_tree(comments) -> int:
+    count = 0
+    stack = list(comments)
+    while stack:
+        current = stack.pop()
+        count += 1
+        stack.extend(getattr(current, "replies", []) or [])
+    return count
+
+
 def _build_zap_request_event(event_id: str, author_pubkey: str, viewer: SessionData, comment: str = "") -> dict:
     created_at = int(time.time())
     return {
@@ -192,11 +204,25 @@ async def _fetch_invoice(pay_endpoint: str, amount_sats: int, zap_request: dict,
         return pr
 
 
+def _is_test_db_url(url: str) -> bool:
+    """Ensure we only drop/reset DBs that are explicitly marked for test use."""
+    return "imprint_test" in url or "mode=memory" in url or ":memory:" in url
+
+
+_TEST_DB_READY = False
+
+
 async def init_models():
     ensure_default_executor()
-    async with aengine.begin() as conn:
-        await conn.run_sync(models.Base.metadata.create_all)
-    await ensure_instance_settings_schema(aengine)
+    current_test = os.getenv("PYTEST_CURRENT_TEST")
+    resolved_url = resolve_database_url()
+    if current_test and not _is_test_db_url(resolved_url):
+        raise RuntimeError("Refusing to init models against non-test database during tests")
+    engine = get_engine(resolved_url)
+    # Reset session factory to ensure new test DB uses a fresh sessionmaker.
+    _session_factory(resolved_url)
+    models.Base.metadata.create_all(engine)
+    ensure_instance_settings_schema_sync(engine)
 
 
 @app.on_event("startup")
@@ -458,6 +484,11 @@ async def publish(
             existing = await service.find_essay_by_identifier(identifier)
             if existing and existing.author_pubkey != author_pubkey:
                 raise HTTPException(status_code=403, detail="Cannot revise another author's essay")
+            draft_conflict = await session.execute(
+                select(models.Draft).where(models.Draft.identifier == identifier).where(models.Draft.author_pubkey != author_pubkey)
+            )
+            if draft_conflict.scalars().first():
+                raise HTTPException(status_code=403, detail="Cannot reuse another author's draft identifier")
 
         if action == "draft":
             try:
@@ -513,16 +544,23 @@ async def publish(
             except SignerError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        version = await service.publish(
-            essay.identifier,
-            title,
-            content,
-            summary,
-            parsed_tags,
-            signed_event=signed,
-            relay_urls=relays_for_request(request),
-            prepared=prepared,
-        )
+        try:
+            version = await service.publish(
+                essay.identifier,
+                title,
+                content,
+                summary,
+                parsed_tags,
+                signed_event=signed,
+                relay_urls=relays_for_request(request),
+                prepared=prepared,
+            )
+        except RelayPublishError as exc:
+            # Surface relay failures to the caller; publish is not persisted on total relay failure.
+            detail = "Failed to publish to configured relays"
+            if exc.results:
+                detail = f"{detail}: {exc.results}"
+            raise HTTPException(status_code=502, detail=detail) from exc
         # If this publish came from a saved draft, mark it published so it no longer appears in Drafts.
         if draft_id:
             draft = await service.get_draft(draft_id, author_pubkey)
@@ -560,6 +598,17 @@ async def save_draft(
     session_data = require_signing_session(request)
     async with get_session() as session:
         service = EssayService(session)
+        if identifier:
+            existing = await service.find_essay_by_identifier(identifier)
+            if existing and existing.author_pubkey != (session_data.pubkey_hex or ""):
+                raise HTTPException(status_code=403, detail="Cannot save draft for another author's identifier")
+            draft_conflict = await session.execute(
+                select(models.Draft)
+                .where(models.Draft.identifier == identifier)
+                .where(models.Draft.author_pubkey != (session_data.pubkey_hex or ""))
+            )
+            if draft_conflict.scalars().first():
+                raise HTTPException(status_code=403, detail="Cannot save draft for another author's identifier")
         try:
             await service.save_draft(
                 identifier,
@@ -641,17 +690,25 @@ async def publish_draft(
         else:
             signed = await signer.sign_event(template)
 
-        version = await service.publish(
-            draft.identifier,
-            draft.title,
-            draft.content,
-            draft.summary,
-            parsed_tags,
-            signed_event=signed,
-            relay_urls=relays_for_request(request),
-            prepared=prepared,
-        )
+        try:
+            version = await service.publish(
+                draft.identifier,
+                draft.title,
+                draft.content,
+                draft.summary,
+                parsed_tags,
+                signed_event=signed,
+                relay_urls=relays_for_request(request),
+                prepared=prepared,
+            )
+        except RelayPublishError as exc:
+            # Surface relay failures to the caller; publish is not persisted on total relay failure.
+            detail = "Failed to publish to configured relays"
+            if exc.results:
+                detail = f"{detail}: {exc.results}"
+            raise HTTPException(status_code=502, detail=detail) from exc
         await service.mark_draft_published(draft, version.event_id)
+        await service.delete_draft(draft_id, session_data.pubkey_hex or "")
         return RedirectResponse(url=f"/essay/{version.essay.identifier}", status_code=303)
 
 
@@ -766,14 +823,164 @@ async def essay_detail(request: Request, identifier: str, version: int | None = 
         and session_data.session_mode != SessionMode.readonly
         and (session_data.pubkey_hex or "") == essay.author_pubkey
     )
+    comment_root_id = None
+    if selected_version and selected_version.event_id:
+        comment_root_id = essay.latest_event_id or selected_version.event_id
     context = {
         "request": request,
         "essay": essay,
         "version": selected_version,
         "history": history,
         "can_revise": bool(can_revise),
+        "comment_root_id": comment_root_id,
     }
     return templates.TemplateResponse("essay_detail.html", context)
+
+
+async def _comment_roots(session, event_id: str) -> tuple[str, list[str], models.EssayVersion]:
+    service = EssayService(session)
+    version = await service.find_version_by_event_id(event_id)
+    if not version:
+        raise HTTPException(status_code=404, detail="Essay not found")
+    history = await service.fetch_history(version.essay.identifier)
+    related_ids = [v.event_id for v in history if v.event_id]
+    # Comments anchor to the essay's latest published event id, but we fetch all versions for continuity.
+    root_id = version.essay.latest_event_id or (related_ids[0] if related_ids else event_id)
+    return root_id, related_ids or [event_id], version
+
+
+@app.get("/posts/{event_id}/comments", response_class=HTMLResponse)
+async def comments_fragment(request: Request, event_id: str):
+    viewer = get_auth_session(request)
+    viewer_pubkey = viewer.pubkey_hex if viewer else None
+    async with get_session() as session:
+        root_id, related_ids, _ = await _comment_roots(session, event_id)
+        comment_service = CommentService(session, cache=comment_cache)
+        blocked = await comment_service._blocked_pubkeys(viewer_pubkey)
+    context = {
+        "request": request,
+        "viewer": viewer,
+        "comment_root_id": root_id,
+        "event_id": event_id,
+        "blocked_pubkeys": blocked,
+    }
+    return templates.TemplateResponse("partials/comments_section.html", context)
+
+
+@app.get("/posts/{event_id}/comments/list", response_class=HTMLResponse)
+async def comments_list(request: Request, event_id: str):
+    viewer = get_auth_session(request)
+    viewer_pubkey = viewer.pubkey_hex if viewer else None
+    async with get_session() as session:
+        root_id, related_ids, _ = await _comment_roots(session, event_id)
+        comment_service = CommentService(session, cache=comment_cache)
+        comments = await comment_service.fetch_comments_for_essay(
+            root_id, relays_for_request(request), related_event_ids=related_ids, limit=100, viewer_pubkey=viewer_pubkey
+        )
+        blocked = await comment_service._blocked_pubkeys(viewer_pubkey)
+    context = {
+        "request": request,
+        "comments": comments,
+        "comment_count": _count_comment_tree(comments),
+        "viewer": viewer,
+        "comment_root_id": root_id,
+        "blocked_pubkeys": blocked,
+    }
+    return templates.TemplateResponse("partials/comments_list.html", context)
+
+
+@app.post("/posts/{event_id}/comments", response_class=HTMLResponse)
+async def post_comment(request: Request, event_id: str, content: str = Form(...), parent_id: str | None = Form(None)):
+    viewer = require_signing_session(request)
+    async with get_session() as session:
+        root_id, related_ids, version = await _comment_roots(session, event_id)
+        comment_service = CommentService(session, cache=comment_cache)
+        await comment_service.publish_comment(
+            version, content, viewer, parent_id=parent_id, relays=relays_for_request(request), root_id=root_id
+        )
+        comments = await comment_service.fetch_comments_for_essay(
+            root_id, [], related_event_ids=related_ids, limit=100, viewer_pubkey=viewer.pubkey_hex
+        )
+        blocked = await comment_service._blocked_pubkeys(viewer.pubkey_hex)
+    context = {
+        "request": request,
+        "comments": comments,
+        "comment_count": _count_comment_tree(comments),
+        "viewer": viewer,
+        "comment_root_id": root_id,
+        "blocked_pubkeys": blocked,
+    }
+    response = templates.TemplateResponse("partials/comments_list.html", context)
+    response.headers["HX-Trigger"] = "commentsRefresh"
+    return response
+
+
+@app.post("/posts/{event_id}/comments/{comment_id}/delete", response_class=HTMLResponse)
+async def delete_comment(request: Request, event_id: str, comment_id: str):
+    viewer = require_signing_session(request)
+    async with get_session() as session:
+        root_id, related_ids, _ = await _comment_roots(session, event_id)
+        comment_service = CommentService(session, cache=comment_cache)
+        comments = await comment_service.fetch_comments_for_essay(
+            root_id, relays_for_request(request), related_event_ids=related_ids, limit=200, viewer_pubkey=None
+        )
+        all_comments = {}
+        stack = list(comments)
+        while stack:
+            c = stack.pop()
+            all_comments[c.id] = c
+            stack.extend(c.replies)
+        target = all_comments.get(comment_id)
+        if not target or target.pubkey != (viewer.pubkey_hex or ""):
+            raise HTTPException(status_code=403, detail="Cannot delete this comment")
+        await comment_service.delete_comment(comment_id, viewer, root_id=root_id, relays=relays_for_request(request))
+        comments = await comment_service.fetch_comments_for_essay(
+            root_id, [], related_event_ids=related_ids, limit=200, viewer_pubkey=viewer.pubkey_hex
+        )
+        blocked = await comment_service._blocked_pubkeys(viewer.pubkey_hex)
+    context = {
+        "request": request,
+        "comments": comments,
+        "comment_count": _count_comment_tree(comments),
+        "viewer": viewer,
+        "comment_root_id": root_id,
+        "blocked_pubkeys": blocked,
+    }
+    response = templates.TemplateResponse("partials/comments_list.html", context)
+    response.headers["HX-Trigger"] = "commentsRefresh"
+    return response
+
+
+@app.post("/me/block/{pubkey}", response_class=HTMLResponse)
+async def block_user(request: Request, pubkey: str):
+    viewer = require_user(request, allow_readonly=True)
+    async with get_session() as session:
+        existing = await session.execute(
+            select(models.UserBlock).where(models.UserBlock.owner_pubkey == viewer.pubkey_hex).where(models.UserBlock.blocked_pubkey == pubkey)
+        )
+        if not existing.scalars().first():
+            block = models.UserBlock(owner_pubkey=viewer.pubkey_hex or "", blocked_pubkey=pubkey)
+            session.add(block)
+            await session.commit()
+    comment_cache.invalidate_viewer(viewer.pubkey_hex)
+    headers = {"HX-Trigger": "commentsRefresh"}
+    return HTMLResponse("", headers=headers)
+
+
+@app.post("/me/unblock/{pubkey}", response_class=HTMLResponse)
+async def unblock_user(request: Request, pubkey: str):
+    viewer = require_user(request, allow_readonly=True)
+    async with get_session() as session:
+        result = await session.execute(
+            select(models.UserBlock).where(models.UserBlock.owner_pubkey == viewer.pubkey_hex).where(models.UserBlock.blocked_pubkey == pubkey)
+        )
+        block = result.scalars().first()
+        if block:
+            await session.delete(block)
+            await session.commit()
+    comment_cache.invalidate_viewer(viewer.pubkey_hex)
+    headers = {"HX-Trigger": "commentsRefresh"}
+    return HTMLResponse("", headers=headers)
 
 
 @app.get("/posts/{event_id}/engagement", response_class=HTMLResponse)

@@ -33,12 +33,14 @@ def client(monkeypatch, tmp_path) -> TestClient:
         async with engine.begin() as conn:
             await conn.run_sync(models.Base.metadata.create_all)
 
-    asyncio.get_event_loop().run_until_complete(_create())
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(_create())
 
     with TestClient(main.app) as test_client:
         yield test_client
 
-    asyncio.get_event_loop().run_until_complete(engine.dispose())
+    loop.run_until_complete(engine.dispose())
 
 
 def _extract_csrf(html: str) -> str:

@@ -1,4 +1,5 @@
 import datetime as dt
+import logging
 import re
 import secrets
 from typing import Optional
@@ -12,6 +13,15 @@ from app.nostr.event import ensure_imprint_tag
 from app.nostr.key import NostrKeyError, decode_nip19
 from app.config import settings
 from app.nostr.relay_client import relay_client
+
+logger = logging.getLogger(__name__)
+
+# Raised when no relay publishes succeed; prevents storing a local-only "published" version.
+class RelayPublishError(RuntimeError):
+    def __init__(self, results: dict[str, str], relays: list[str]) -> None:
+        super().__init__("Relay publish failed")
+        self.results = results
+        self.relays = relays
 # Backwards-compatible alias for tests that monkeypatch publish_event.
 publish_event = relay_client.publish_event
 
@@ -76,6 +86,11 @@ class EssayService:
         now = dt.datetime.now(dt.timezone.utc)
         if identifier:
             await self.ensure_identifier_available(identifier, author_pubkey)
+            existing_draft = await self.session.execute(
+                select(models.Draft).where(models.Draft.identifier == identifier).where(models.Draft.author_pubkey != author_pubkey)
+            )
+            if existing_draft.scalars().first():
+                raise PermissionError("Identifier belongs to another author")
         draft: models.Draft | None = None
         if draft_id:
             draft = await self.session.get(models.Draft, draft_id)
@@ -115,7 +130,10 @@ class EssayService:
         return result.scalars().all()
 
     async def get_draft(self, draft_id: int, author_pubkey: str) -> models.Draft | None:
-        return await self.session.get(models.Draft, draft_id)
+        draft = await self.session.get(models.Draft, draft_id)
+        if draft and draft.author_pubkey != author_pubkey:
+            return None
+        return draft
 
     async def delete_draft(self, draft_id: int, author_pubkey: str) -> None:
         draft = await self.get_draft(draft_id, author_pubkey)
@@ -178,11 +196,26 @@ class EssayService:
         essay.title = title
         essay.summary = summary
         essay.tags = ",".join(topics) if topics else None
+        target_relays = relay_urls if relay_urls is not None else settings.relay_urls
+        # Publish first; if all relays fail, rollback so we don't persist a publish that nobody observed.
+        results = await relay_client.publish_event(signed_event, target_relays)
+        if target_relays:
+            successes = {relay for relay, status in results.items() if status == "ok"}
+            failures = {relay: status for relay, status in results.items() if status != "ok"}
+            if not successes:
+                await self.session.rollback()
+                raise RelayPublishError(results, list(target_relays))
+            if failures:
+                # Warn on partial failures but keep the publish if at least one relay succeeded.
+                logger.warning(
+                    "Partial relay publish for event %s: ok=%d failed=%s",
+                    signed_event.get("id"),
+                    len(successes),
+                    failures,
+                )
+
         self.session.add(version)
         await self.session.commit()
-
-        target_relays = relay_urls if relay_urls is not None else settings.relay_urls
-        await relay_client.publish_event(signed_event, target_relays)
         await self.session.refresh(version)
         return version
 
