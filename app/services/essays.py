@@ -13,6 +13,7 @@ from app.nostr.event import ensure_imprint_tag
 from app.nostr.key import NostrKeyError, decode_nip19
 from app.config import settings
 from app.nostr.relay_client import relay_client
+from app.services.admin_events import AdminEventService
 
 logger = logging.getLogger(__name__)
 
@@ -199,11 +200,25 @@ class EssayService:
         target_relays = relay_urls if relay_urls is not None else settings.relay_urls
         # Publish first; if all relays fail, rollback so we don't persist a publish that nobody observed.
         results = await relay_client.publish_event(signed_event, target_relays)
+        admin_events = AdminEventService(self.session)
         if target_relays:
             successes = {relay for relay, status in results.items() if status == "ok"}
             failures = {relay: status for relay, status in results.items() if status != "ok"}
             if not successes:
                 await self.session.rollback()
+                await admin_events.log_event(
+                    action="publish_failed",
+                    level="error",
+                    message=f"Publish failed for {essay.identifier}",
+                    actor_pubkey=pubkey,
+                    metadata={
+                        "event_id": signed_event.get("id"),
+                        "identifier": essay.identifier,
+                        "version": version_num,
+                        "relays": list(target_relays),
+                        "results": results,
+                    },
+                )
                 raise RelayPublishError(results, list(target_relays))
             if failures:
                 # Warn on partial failures but keep the publish if at least one relay succeeded.
@@ -213,6 +228,21 @@ class EssayService:
                     len(successes),
                     failures,
                 )
+        failures = {relay: status for relay, status in results.items() if status != "ok"}
+        level = "warn" if failures else "info"
+        admin_events.add_event(
+            action="publish_success",
+            level=level,
+            message=f"Published {essay.identifier} v{version_num}",
+            actor_pubkey=pubkey,
+            metadata={
+                "event_id": signed_event.get("id"),
+                "identifier": essay.identifier,
+                "version": version_num,
+                "relay_count": len(list(target_relays)),
+                "results": results,
+            },
+        )
 
         self.session.add(version)
         await self.session.commit()

@@ -63,8 +63,29 @@
         <label class="field">
             <span>Default relays (comma-separated)</span>
             <textarea name="default_relays" placeholder="wss://relay.damus.io,wss://nos.lol" maxlength="1000">{{ settings.get('default_relays','') if is_mapping else (settings.default_relays or '') }}</textarea>
-            <span class="muted small">Used for indexing and as fallbacks for new users.</span>
+            <span class="muted small">Use ws:// or wss:// URLs. These are used for indexing and as fallbacks for new users.</span>
         </label>
+        {% set relay_values = settings.get('default_relays','') if is_mapping else (settings.default_relays or '') %}
+        {% set relay_list = relay_values | tags_list %}
+        {% if relay_list %}
+            <div class="relay-preview">
+                {% for relay in relay_list %}
+                    <span class="relay-chip">{{ relay }}</span>
+                {% endfor %}
+            </div>
+        {% endif %}
+        <div class="row gap wrap align-center">
+            <button type="button"
+                    class="button ghost"
+                    hx-post="/admin/relays/test"
+                    hx-include="textarea[name=default_relays], input[name=csrf]"
+                    hx-target="#relay-test-results"
+                    hx-swap="innerHTML">
+                Test relays
+            </button>
+            <span class="muted small">Runs a quick handshake from the server to confirm reachability.</span>
+        </div>
+        <div id="relay-test-results"></div>
         <div class="row gap wrap">
             <label class="field grow">
                 <span>Max feed items</span>

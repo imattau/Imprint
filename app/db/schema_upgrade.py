@@ -37,6 +37,27 @@ async def ensure_instance_settings_schema(engine: AsyncEngine) -> None:
                 )
 
 
+async def ensure_admin_events_schema(engine: AsyncEngine) -> None:
+    """
+    Ensure the admin_events table exists for audit logging.
+    """
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS admin_events ("
+                "id INTEGER PRIMARY KEY, "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                "level TEXT NOT NULL, "
+                "action TEXT NOT NULL, "
+                "actor_pubkey TEXT, "
+                "message TEXT NOT NULL, "
+                "metadata_json TEXT"
+                ")"
+            )
+        )
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_admin_events_created_at ON admin_events(created_at)"))
+
+
 def ensure_instance_settings_schema_sync(engine) -> None:
     """
     Synchronous variant for environments where async engine setup is slow or unavailable.
@@ -61,3 +82,22 @@ def ensure_instance_settings_schema_sync(engine) -> None:
                 conn.exec_driver_sql(
                     "ALTER TABLE instance_settings ADD COLUMN filter_recently_published_to_imprint_only BOOLEAN DEFAULT 0"
                 )
+
+
+def ensure_admin_events_schema_sync(engine) -> None:
+    """
+    Synchronous variant for ensuring admin_events exists.
+    """
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            "CREATE TABLE IF NOT EXISTS admin_events ("
+            "id INTEGER PRIMARY KEY, "
+            "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+            "level TEXT NOT NULL, "
+            "action TEXT NOT NULL, "
+            "actor_pubkey TEXT, "
+            "message TEXT NOT NULL, "
+            "metadata_json TEXT"
+            ")"
+        )
+        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_admin_events_created_at ON admin_events(created_at)")

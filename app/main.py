@@ -25,7 +25,7 @@ from app.auth.service import AuthRequired, get_auth_session, require_signing_ses
 from app.auth.schemas import SessionMode, SessionData
 from app.db import models
 from app.db.session import get_session, resolve_database_url, get_engine, _session_factory
-from app.db.schema_upgrade import ensure_instance_settings_schema_sync
+from app.db.schema_upgrade import ensure_instance_settings_schema_sync, ensure_admin_events_schema_sync
 from app.indexer import run_indexer
 from app.nostr.event import (
     build_long_form_event_template,
@@ -223,6 +223,7 @@ async def init_models():
     _session_factory(resolved_url)
     models.Base.metadata.create_all(engine)
     ensure_instance_settings_schema_sync(engine)
+    ensure_admin_events_schema_sync(engine)
 
 
 @app.on_event("startup")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import secrets
 from typing import Optional
 
@@ -7,7 +8,10 @@ from fastapi import APIRouter, Depends, Form, Request, UploadFile, File, status
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+import websockets
 
 from app.admin.service import (
     admin_token,
@@ -20,9 +24,12 @@ from app.admin.service import (
     validate_admin_csrf,
     InstanceSettingsService,
 )
+from app.admin.schemas import InstanceSettingsPayload
 from app.admin.backup import create_backup_archive, validate_backup_archive, apply_restore_from_archive
 from app.auth.service import get_auth_session
+from app.db import models
 from app.db.session import get_session
+from app.services.admin_events import AdminEventService
 from app.template_utils import register_filters
 
 
@@ -209,11 +216,82 @@ async def backup_page(request: Request, session: AsyncSession = Depends(db_sessi
     return templates.TemplateResponse("admin/backup.html", context)
 
 
+@router.get("/logs", response_class=HTMLResponse)
+async def logs_page(
+    request: Request,
+    session: AsyncSession = Depends(db_session),
+    limit: int = 100,
+):
+    require_admin(request)
+    result = await session.execute(
+        select(models.AdminEvent).order_by(models.AdminEvent.created_at.desc()).limit(limit)
+    )
+    events = result.scalars().all()
+    context = {
+        "request": request,
+        "events": events,
+        "limit": limit,
+        "csrf": ensure_admin_csrf(request),
+    }
+    return templates.TemplateResponse("admin/logs.html", context)
+
+
+@router.post("/relays/test", response_class=HTMLResponse)
+async def test_relays(
+    request: Request,
+    session: AsyncSession = Depends(db_session),
+    default_relays: str = Form(""),
+    csrf: str = Form(""),
+):
+    require_admin(request)
+    validate_admin_csrf(request, csrf)
+    try:
+        payload = InstanceSettingsPayload.model_validate({"default_relays": default_relays})
+        relay_list = payload.relays_list()
+    except ValidationError as exc:
+        return templates.TemplateResponse(
+            "admin/partials/relay_test_results.html",
+            {"request": request, "errors": exc.errors(), "relay_results": [], "tested": False},
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    async def _check(relay: str):
+        try:
+            async with websockets.connect(relay, open_timeout=4, close_timeout=4) as ws:
+                await ws.close()
+            return {"relay": relay, "status": "ok", "detail": "Handshake ok"}
+        except Exception as exc:  # noqa: BLE001
+            return {"relay": relay, "status": "failed", "detail": f"{type(exc).__name__}"}
+
+    results = []
+    if relay_list:
+        results = await asyncio.gather(*(_check(relay) for relay in relay_list))
+    auth_session = get_auth_session(request)
+    await AdminEventService(session).log_event(
+        action="relays_tested",
+        level="info",
+        message=f"Tested {len(relay_list)} relays",
+        actor_pubkey=auth_session.pubkey_hex if auth_session else None,
+        metadata={"results": results},
+    )
+    return templates.TemplateResponse(
+        "admin/partials/relay_test_results.html",
+        {"request": request, "errors": [], "relay_results": results, "tested": True},
+    )
+
+
 @router.post("/backup/create")
 async def backup_create(request: Request, session: AsyncSession = Depends(db_session), csrf: str = Form("")):
     require_admin(request)
     validate_admin_csrf(request, csrf)
     buffer, name = await create_backup_archive(session)
+    auth_session = get_auth_session(request)
+    await AdminEventService(session).log_event(
+        action="backup_created",
+        level="info",
+        message=f"Backup created: {name}",
+        actor_pubkey=auth_session.pubkey_hex if auth_session else None,
+    )
     headers = {"Content-Disposition": f'attachment; filename="{name}"'}
     return StreamingResponse(buffer, media_type="application/zip", headers=headers)
 
@@ -253,6 +331,13 @@ async def restore_apply(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
     await apply_restore_from_archive(content)
+    auth_session = get_auth_session(request)
+    await AdminEventService(session).log_event(
+        action="restore_applied",
+        level="warn",
+        message=f"Restore applied from {archive.filename}",
+        actor_pubkey=auth_session.pubkey_hex if auth_session else None,
+    )
     return templates.TemplateResponse(
         "admin/backup.html",
         {

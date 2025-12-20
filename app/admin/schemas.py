@@ -89,8 +89,8 @@ class InstanceSettingsPayload(BaseModel):
             if not relay:
                 continue
             parsed = urlparse(relay)
-            if parsed.scheme not in {"ws", "wss", "http", "https"}:
-                raise ValueError("Relays must include a ws/wss/http/https scheme")
+            if parsed.scheme not in {"ws", "wss"} or not parsed.netloc:
+                raise ValueError("Relays must use ws:// or wss:// and include a host")
             relays.append(relay)
         return ",".join(dict.fromkeys(relays)) if relays else None
 

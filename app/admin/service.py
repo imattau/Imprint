@@ -15,6 +15,7 @@ from app.auth.service import get_auth_session
 from app.config import settings as app_settings
 from app.db import models
 from app.nostr.key import NostrKeyError, decode_nip19
+from app.services.admin_events import AdminEventService
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +147,13 @@ class InstanceSettingsService:
         settings.updated_by_pubkey = updated_by_pubkey
         await self.session.commit()
         await self.session.refresh(settings)
+        await AdminEventService(self.session).log_event(
+            action="settings_updated",
+            level="info",
+            message="Instance settings updated",
+            actor_pubkey=updated_by_pubkey,
+            metadata=self._redact_settings(payload),
+        )
         logger.info(
             "Instance settings updated by %s: %s",
             updated_by_pubkey or "admin",

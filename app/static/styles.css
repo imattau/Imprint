@@ -383,6 +383,16 @@ button.ghost:hover,
     background: #f1eadf;
     color: var(--muted);
 }
+
+.badge.warn {
+    background: #fde7c3;
+    color: #7a4a00;
+}
+
+.badge.error {
+    background: #fdecec;
+    color: #9b2c2c;
+}
 .auth-chip {
     position: relative;
 }
@@ -927,6 +937,64 @@ button.ghost:hover,
 .admin-main {
     display: grid;
     gap: 1rem;
+}
+
+.relay-preview {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.relay-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.6rem;
+    border-radius: 999px;
+    background: #f7f2e9;
+    border: 1px solid var(--border);
+    font-size: 0.9rem;
+}
+
+.relay-test-summary {
+    margin-top: 0.5rem;
+}
+
+.relay-test-list {
+    display: grid;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.relay-test-item {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.5rem 0.75rem;
+    background: #fff;
+}
+
+.log-list {
+    display: grid;
+    gap: 1rem;
+}
+
+.log-item {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.75rem 1rem;
+    background: #fff;
+}
+
+.log-meta summary {
+    cursor: pointer;
+}
+
+.log-meta pre {
+    margin: 0.5rem 0 0;
+    padding: 0.75rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: #f7f2e9;
+    white-space: pre-wrap;
 }
 
 .grid.two {

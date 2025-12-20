@@ -1,0 +1,36 @@
+{% extends "admin/base.html" %}
+{% block title %}Admin Logs · {{ request.state.instance_settings.site_name if request.state.instance_settings else 'Admin' }}{% endblock %}
+{% block admin_content %}
+<section class="stack">
+    <h1>Activity log</h1>
+    <p class="lede">Recent server activity, including publish outcomes and admin actions.</p>
+</section>
+
+<div class="card stack">
+    {% if events %}
+        <div class="log-list">
+            {% for event in events %}
+                <div class="log-item stack">
+                    <div class="row space-between align-center wrap">
+                        <div class="row align-center gap wrap">
+                            <span class="badge {{ 'error' if event.level == 'error' else ('warn' if event.level == 'warn' else 'subtle') }}">{{ event.level }}</span>
+                            <strong>{{ event.action }}</strong>
+                            <span class="muted small">{{ event.created_at.strftime('%Y-%m-%d %H:%M:%S') if event.created_at else '' }}</span>
+                        </div>
+                        <span class="muted small">{{ event.actor_pubkey | short_identity }}</span>
+                    </div>
+                    <p class="muted small">{{ event.message }}</p>
+                    {% if event.metadata_json %}
+                        <details class="log-meta">
+                            <summary class="muted small">Details</summary>
+                            <pre>{{ event.metadata_json }}</pre>
+                        </details>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="muted">No activity recorded yet.</p>
+    {% endif %}
+</div>
+{% endblock %}

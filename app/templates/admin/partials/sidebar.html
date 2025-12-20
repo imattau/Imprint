@@ -6,6 +6,7 @@
 <nav class="admin-nav">
     <a href="/admin/overview" class="{{ 'active' if path.startswith('/admin/overview') else '' }}">Overview</a>
     <a href="/admin/settings" class="{{ 'active' if path.startswith('/admin/settings') else '' }}">Settings</a>
+    <a href="/admin/logs" class="{{ 'active' if path.startswith('/admin/logs') else '' }}">Logs</a>
     <a href="/admin/backup" class="{{ 'active' if path.startswith('/admin/backup') else '' }}">Backup & Restore</a>
 </nav>
 <form action="/admin/logout" method="post" class="sidebar-footer">

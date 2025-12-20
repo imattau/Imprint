@@ -96,6 +96,18 @@ class CommentCache(Base):
     created_at = Column(DateTime, default=lambda: dt.datetime.now(dt.timezone.utc))
 
 
+class AdminEvent(Base):
+    __tablename__ = "admin_events"
+
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, default=lambda: dt.datetime.now(dt.timezone.utc), index=True)
+    level = Column(String(16), default="info", nullable=False)
+    action = Column(String(64), nullable=False)
+    actor_pubkey = Column(String(128))
+    message = Column(Text, nullable=False)
+    metadata_json = Column(Text)
+
+
 class InstanceSettings(Base):
     __tablename__ = "instance_settings"
 
